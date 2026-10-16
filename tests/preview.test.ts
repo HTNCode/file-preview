@@ -32,6 +32,11 @@ describe('HTML から Markdown への変換', () => {
     expect(extractTitle(PAGE)).toBe('Hello & Welcome')
   })
 
+  test('数値参照の 0x80〜0x9F は Windows-1252 の文字として読み、制御文字を残さない', async () => {
+    expect(htmlToMarkdown('<p>It&#146;s &#150; &#129; &#0; &#xD800;</p>')).toBe('It’s – � � �')
+    expect(sanitize('a\u0085b\u009fc')).toBe('abc')
+  })
+
   test('doctype は本文に出さない', async () => {
     expect(htmlToMarkdown('<!doctype html><?xml version="1.0"?><p>本文</p>')).toBe('本文')
   })

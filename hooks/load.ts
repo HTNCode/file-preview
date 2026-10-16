@@ -3,17 +3,18 @@ import { codeFence, extractTitle, htmlToMarkdown } from './html-to-markdown'
 
 // `$` は import 先の関数へ渡せない（validate が拒否する）ため、ここには I/O を持たない純粋関数だけを置く
 
-// Markdown 要素が一度に描くのは 10 万文字まで。state に巨大な文字列を持たせないよう手前で切る
-export const MAX_CHARS = 100_000
+// ペインのツリー全体で描かれるのは 10 万文字まで（タイトルやボタンの文字も含む）。
+// 本文で使い切ると末尾の省略の注記が描かれないので、余裕を残して切る
+export const MAX_CHARS = 90_000
 // 変換前の入力の上限。変換は線形時間だが、巨大な応答でフックの持ち時間を使い切らないよう先に切る
 export const MAX_SOURCE_CHARS = 2_000_000
 
 const MARKDOWN_EXT = /\.(md|markdown|mdx)$/i
 const HTML_EXT = /\.(html?|xhtml)$/i
 
-/** Markdown 要素はタブと改行以外の制御文字を含むテキストを拒否するため、読み込んだ内容から落とす */
+/** Markdown 要素はタブと改行以外の制御文字（C0、DEL、C1）を含むテキストを拒否するため、読み込んだ内容から落とす */
 export function sanitize(text: string): string {
-  const cleaned = text.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+  const cleaned = text.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '')
   if (cleaned.length <= MAX_CHARS) return cleaned
   const note = `\n\n...（${cleaned.length} 文字中、先頭のみ表示）`
   return `${cleaned.slice(0, MAX_CHARS - note.length)}${note}`
@@ -25,7 +26,7 @@ const MAX_TITLE_CHARS = 200
 /** タイトルは 1 行で描くので、改行やタブを含む制御文字を空白にし、長さを切る。制御文字があるとホストが描画を拒否する */
 export function cleanTitle(title: string): string {
   return title
-    .replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')
     .replace(/ {2,}/g, ' ')
     .trim()
     .slice(0, MAX_TITLE_CHARS)

@@ -25,12 +25,26 @@ const BLOCKS = new Set([
 ])
 const EMPHASIS: Record<string, string> = { strong: '**', b: '**', em: '*', i: '*' }
 
+// HTML 仕様では、数値参照の 0x80〜0x9F は C1 制御文字ではなく Windows-1252 の文字として読む。
+// 古い HTML の `&#146;`（’）などをそのまま C1 にすると、ホストが制御文字として描画を拒否する
+const WINDOWS_1252: Record<number, number> = {
+  0x80: 0x20ac, 0x82: 0x201a, 0x83: 0x0192, 0x84: 0x201e, 0x85: 0x2026, 0x86: 0x2020, 0x87: 0x2021,
+  0x88: 0x02c6, 0x89: 0x2030, 0x8a: 0x0160, 0x8b: 0x2039, 0x8c: 0x0152, 0x8e: 0x017d, 0x91: 0x2018,
+  0x92: 0x2019, 0x93: 0x201c, 0x94: 0x201d, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014, 0x98: 0x02dc,
+  0x99: 0x2122, 0x9a: 0x0161, 0x9b: 0x203a, 0x9c: 0x0153, 0x9e: 0x017e, 0x9f: 0x0178,
+}
+
+function decodeCodePoint(code: number): string {
+  if (code >= 0x80 && code <= 0x9f) return String.fromCodePoint(WINDOWS_1252[code] ?? 0xfffd)
+  const isValid = Number.isFinite(code) && code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff)
+  return String.fromCodePoint(isValid ? code : 0xfffd)
+}
+
 export function decodeEntities(text: string): string {
   return text.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]{1,32});/gi, (whole, body: string) => {
     if (body[0] === '#') {
       const isHex = body[1] === 'x' || body[1] === 'X'
-      const code = Number.parseInt(body.slice(isHex ? 2 : 1), isHex ? 16 : 10)
-      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole
+      return decodeCodePoint(Number.parseInt(body.slice(isHex ? 2 : 1), isHex ? 16 : 10))
     }
     const name = body.toLowerCase()
     return Object.hasOwn(NAMED_ENTITIES, name) ? (NAMED_ENTITIES[name] ?? whole) : whole
