@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { toDisplayBlocks } from '../hooks/display'
 import { extractTitle, htmlToMarkdown } from '../hooks/html-to-markdown'
-import { MAX_CHARS, docFromFile, redactSource, sanitize, toFileUrl } from '../hooks/load'
+import { MAX_CHARS, docFromFile, docFromUrl, redactSource, sanitize, toFileUrl } from '../hooks/load'
 import { hardenHtmlForScreenshot, screenshotArgv, shotKey, windowsBrowsers } from '../hooks/screenshot'
 
 const PAGE = `<!doctype html><html><head><title>Hello &amp; Welcome</title><style>p{color:red}</style></head>
@@ -50,6 +50,14 @@ describe('HTML から Markdown への変換', () => {
 
   test('リンク先の丸括弧はどちらもエンコードして Markdown のリンクを壊さない', async () => {
     expect(htmlToMarkdown('<a href="https://example.com/a(b)">説明</a>')).toBe('[説明](https://example.com/a%28b%29)')
+  })
+
+  test('Web の文書から file: のリンクを作らず、ホスト付きの file: はローカルからも作らない', async () => {
+    expect(htmlToMarkdown('<a href="file:///etc/hosts">a</a>', 'https://example.com/')).toBe('a')
+    expect(htmlToMarkdown('<a href="//evil.example/share/x.html">b</a>', 'file:///work/page.html')).toBe('b')
+    expect(htmlToMarkdown('<a href="other.html">c</a>', 'file:///work/page.html')).toBe('[c](file:///work/other.html)')
+    const doc = docFromUrl('https://example.com/readme.md', '[x](file://evil.example/s) <file://evil.example/t>')
+    expect(doc.markdown).toBe('[x](blocked-file://evil.example/s) <blocked-file://evil.example/t>')
   })
 
   test('javascript: のリンクは文字だけ残す', async () => {

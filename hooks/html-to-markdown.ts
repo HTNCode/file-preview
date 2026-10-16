@@ -40,11 +40,18 @@ export function decodeEntities(text: string): string {
 // Link が受け付けるアドレスの上限。これを超える URL はリンクにせず文字だけ残す
 const MAX_HREF_CHARS = 2048
 
-/** Markdown 要素が描画するのは http / https / file のリンクだけなので、それ以外は文字として残す */
+/**
+ * Markdown 要素が描画するのは http / https / file のリンクだけなので、それ以外は文字として残す。
+ * さらに、Web の文書からは file: のリンクを作らず、ホスト付きの file:（UNC）はどこからでも作らない。
+ * Windows でホスト付きの file: を開くと SMB 接続になり、認証情報が外部ホストへ送られうるため
+ */
 function resolveHref(href: string, base: string | undefined): string | undefined {
   try {
     const url = base === undefined ? new URL(href) : new URL(href, base)
-    const isDrawable = ['http:', 'https:', 'file:'].includes(url.protocol) && url.href.length <= MAX_HREF_CHARS
+    const isFromWeb = base !== undefined && /^https?:/i.test(base)
+    const allowed = isFromWeb ? ['http:', 'https:'] : ['http:', 'https:', 'file:']
+    const isLocalFile = url.protocol !== 'file:' || url.host === '' || url.host === 'localhost'
+    const isDrawable = allowed.includes(url.protocol) && isLocalFile && url.href.length <= MAX_HREF_CHARS
     return isDrawable ? url.href : undefined
   } catch {
     return undefined

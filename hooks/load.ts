@@ -64,6 +64,15 @@ function fence(text: string, path: string): string {
   return codeFence(text, /\.([a-z0-9]+)$/i.exec(path)?.[1] ?? '')
 }
 
+/**
+ * Web から取得した文書の本文に書かれた file: のリンク（`[x](file://...)`、`<file://...>`、参照定義）を、
+ * 描画されない形に変えて文字として残す。本文の Markdown 記号はエスケープしないため、
+ * HTML の本文や .md に書かれただけで、ホスト付き file:（SMB 接続）のリンクになってしまう
+ */
+export function neutralizeFileLinks(markdown: string): string {
+  return markdown.replace(/(\]\(\s*<?|<|\]:[ \t]*<?)file:/gi, '$1blocked-file:')
+}
+
 export function docFromUrl(url: string, fetched: string): PreviewDoc {
   const body = capSource(fetched)
   const isMarkdown = MARKDOWN_EXT.test(new URL(url).pathname)
@@ -71,7 +80,7 @@ export function docFromUrl(url: string, fetched: string): PreviewDoc {
     source: url,
     kind: 'url',
     title: (isMarkdown ? undefined : extractTitle(body)) ?? redactSource(url),
-    markdown: sanitize(isMarkdown ? body : htmlToMarkdown(body, url)),
+    markdown: sanitize(neutralizeFileLinks(isMarkdown ? body : htmlToMarkdown(body, url))),
     mtimeMs: 0,
   }
 }
