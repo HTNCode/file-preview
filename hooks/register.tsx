@@ -164,7 +164,7 @@ async function shoot($: EngineInterface): Promise<void> {
  */
 function runInBackground($: EngineInterface, task: Promise<void>): void {
   task.catch((error: unknown) => {
-    $.ui.log(`file-preview: ${errorText(error)}`).catch(() => undefined)
+    $.ui.log(`file-preview: ${errorText(error)}`)
   })
 }
 

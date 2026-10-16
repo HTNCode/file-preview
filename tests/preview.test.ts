@@ -405,7 +405,7 @@ test('モデルが呼ぶツールでは URL を取得しない', async ($, on) =
   let fetched = 0
   on('http.fetch', async () => {
     fetched++
-    return { value: { ok: true, status: 200, text: '<p>x</p>' } }
+    return { value: { ok: true, status: 200, headers: {}, text: '<p>x</p>' } }
   })
   const called = await $.tool.call({ tool: 'mcp__file-preview__open', input: { target: 'https://example.com/?q=1' } })
   expect(called.deny).toContain('/preview')
