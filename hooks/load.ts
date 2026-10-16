@@ -19,6 +19,18 @@ export function sanitize(text: string): string {
   return `${cleaned.slice(0, MAX_CHARS - note.length)}${note}`
 }
 
+// ペインの見出しに出すタイトルの上限。$.ui.open の title にも渡すので、長すぎると開けなくなる
+const MAX_TITLE_CHARS = 200
+
+/** タイトルは 1 行で描くので、改行やタブを含む制御文字を空白にし、長さを切る。制御文字があるとホストが描画を拒否する */
+export function cleanTitle(title: string): string {
+  return title
+    .replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ')
+    .replace(/ {2,}/g, ' ')
+    .trim()
+    .slice(0, MAX_TITLE_CHARS)
+}
+
 function capSource(text: string): string {
   return text.length > MAX_SOURCE_CHARS ? text.slice(0, MAX_SOURCE_CHARS) : text
 }
@@ -77,9 +89,10 @@ export function docFromUrl(url: string, fetched: string): PreviewDoc {
   const body = capSource(fetched)
   const isMarkdown = MARKDOWN_EXT.test(new URL(url).pathname)
   return {
-    source: url,
+    // URL の構文に沿って正規化し、表示に制御文字などが混ざらないようにする
+    source: new URL(url).href,
     kind: 'url',
-    title: (isMarkdown ? undefined : extractTitle(body)) ?? redactSource(url),
+    title: cleanTitle((isMarkdown ? undefined : extractTitle(body)) ?? redactSource(url)),
     markdown: sanitize(neutralizeFileLinks(isMarkdown ? body : htmlToMarkdown(body, url))),
     mtimeMs: 0,
   }
@@ -93,7 +106,7 @@ export function docFromFile(absolutePath: string, read: string, mtimeMs: number)
   return {
     source: absolutePath,
     kind,
-    title: (kind === 'html' ? extractTitle(raw) : undefined) ?? baseName(absolutePath),
+    title: cleanTitle((kind === 'html' ? extractTitle(raw) : undefined) ?? baseName(absolutePath)),
     markdown: sanitize(converted),
     mtimeMs,
   }

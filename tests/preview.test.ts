@@ -265,6 +265,13 @@ describe('パスと本文の扱い', () => {
     expect(redactSource('/local/path.md')).toBe('/local/path.md')
   })
 
+  test('タイトルから制御文字を除き、長さを切る', async () => {
+    const page = `<title>a\u001b[31mb\u0007\n\tc${'x'.repeat(1000)}</title>`
+    const title = docFromFile('/x/page.html', page, 1).title
+    expect(title.startsWith('a [31mb c')).toBe(true)
+    expect(title.length).toBe(200)
+  })
+
   test('拡張子に応じて種類を決める', async () => {
     expect(docFromFile('/x/readme.md', '# T', 1).kind).toBe('markdown')
     expect(docFromFile('C:\\x\\page.html', PAGE, 1).title).toBe('Hello & Welcome')
@@ -296,8 +303,8 @@ describe('ペインの表示用の組み直し', () => {
 
   test('細工した行や表でも線形時間で終わる', async () => {
     const started = Date.now()
-    toDisplayBlocks(`-${' '.repeat(50_000)}${'a'.repeat(50_000)} `)
-    toDisplayBlocks(`# ${' '.repeat(50_000)}${'a'.repeat(50_000)} `)
+    toDisplayBlocks(`-${' '.repeat(50_000)}${'a'.repeat(50_000)}\u2028`)
+    toDisplayBlocks(`# ${' '.repeat(50_000)}${'a'.repeat(50_000)}\u2029`)
     toDisplayBlocks(`a|b\n|${' '.repeat(100_000)}-${' '.repeat(100_000)}x`)
     toDisplayBlocks(`${'|'.repeat(50_000)}\n|-|\n${'a|\n'.repeat(25_000)}`)
     expect(Date.now() - started).toBeLessThan(1000)
