@@ -31,6 +31,22 @@ describe('HTML から Markdown への変換', () => {
     expect(extractTitle(PAGE)).toBe('Hello & Welcome')
   })
 
+  test('doctype は本文に出さない', async () => {
+    expect(htmlToMarkdown('<!doctype html><?xml version="1.0"?><p>本文</p>')).toBe('本文')
+  })
+
+  test('番号付きリストと入れ子のリストを字下げして変換する', async () => {
+    const markdown = htmlToMarkdown('<ul><li>a<ol><li>x</li><li>y</li></ol></li><li>b</li></ul>')
+    expect(markdown).toBe('- a\n  1. x\n  2. y\n\n- b')
+  })
+
+  test('表は区切り行付きの Markdown の表にし、セル内の | と改行を表の外に漏らさない', async () => {
+    const markdown = htmlToMarkdown(
+      '<table><tr><th>項目</th><th>値</th></tr><tr><td>a|b</td><td>1<br>2</td></tr></table>',
+    )
+    expect(markdown).toBe('| 項目 | 値 |\n| --- | --- |\n| a\\|b | 1 2 |')
+  })
+
   test('リンク先の丸括弧はどちらもエンコードして Markdown のリンクを壊さない', async () => {
     expect(htmlToMarkdown('<a href="https://example.com/a(b)">説明</a>')).toBe('[説明](https://example.com/a%28b%29)')
   })

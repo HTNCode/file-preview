@@ -114,6 +114,9 @@ export function findTagEnd(html: string, lt: number): number {
   return -1
 }
 
+// 入れ子のリストを字下げする段数の上限。深い入れ子で 1 行の字下げが膨らまないようにする
+const MAX_LIST_INDENT = 10
+
 // 変換結果の上限。表示は 10 万文字までなので、空白整理で縮む分を見込んでも十分な量で打ち切る
 const OUTPUT_BUDGET = 400_000
 
@@ -129,10 +132,13 @@ export function codeFence(text: string, language = ''): string {
   return `${marker}${language}\n${text}\n${marker}`
 }
 
+// \u5165\u308c\u5b50\u306e\u30ea\u30b9\u30c8\u306e\u5b57\u4e0b\u3052\u3060\u3051\u306f\u6b8b\u3059\u3002\u307b\u304b\u306e\u884c\u982d\u306e\u7a7a\u767d\u306f\u3001\u5143\u306e HTML \u306e\u6539\u884c\u3084\u30a4\u30f3\u30c7\u30f3\u30c8\u306b\u7531\u6765\u3059\u308b\u306e\u3067\u6d88\u3059
+const LIST_ITEM_INDENT = /^( +)(?=- |\d+\. )/
+
 function normalizeText(text: string): string {
   return text
     .split('\n')
-    .map((line) => line.replace(/[ \t\u00a0]+/g, ' ').trim())
+    .map((line) => (LIST_ITEM_INDENT.exec(line)?.[1] ?? '') + line.replace(/[ \t\u00a0]+/g, ' ').trim())
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
@@ -147,15 +153,25 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
   let pre: string[] | undefined
   let produced = 0
   let i = 0
+  // ul / ol の入れ子。番号付きは次に振る番号を持つ
+  const lists: Array<{ next: number | undefined }> = []
+  // 表は一番外側だけを Markdown の表にする。内側の表は外側のセルの文字として流す
+  let tableDepth = 0
+  let row = 0
+  let cells = 0
 
-  const emit = (text: string) => {
-    produced += text.length
-    if (pre !== undefined) pre.push(text)
-    else out.push(text)
+  // 表の中では改行を空白にする。セル内の改行は Markdown の表の行を壊すため。
+  // 表の行や区切り行そのものを出すときだけ isStructural で改行を通す
+  const emit = (text: string, isStructural = false) => {
+    const value = tableDepth > 0 && pre === undefined && !isStructural ? text.replace(/\n+/g, ' ') : text
+    produced += value.length
+    if (pre !== undefined) pre.push(value)
+    else out.push(value)
   }
   const pushText = (raw: string) => {
     const decoded = decodeEntities(raw)
-    emit(pre !== undefined ? decoded : decoded.replace(/\s+/g, ' '))
+    if (pre !== undefined) emit(decoded)
+    else emit((tableDepth > 0 ? decoded.replace(/\|/g, '\\|') : decoded).replace(/\s+/g, ' '))
   }
   const flushText = () => {
     segments.push({ text: out.join('') })
@@ -174,6 +190,12 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
     if (html.startsWith('<!--', lt)) {
       const end = html.indexOf('-->', lt + 4)
       i = end < 0 ? html.length : end + 3
+      continue
+    }
+    // `<!doctype html>` や `<?xml ...?>` は本文ではないので読み飛ばす
+    if (html[lt + 1] === '!' || html[lt + 1] === '?') {
+      const end = html.indexOf('>', lt + 2)
+      i = end < 0 ? html.length : end + 1
       continue
     }
     const tagEnd = findTagEnd(html, lt)
@@ -239,12 +261,39 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
       emit('\n')
     } else if (name === 'hr') {
       emit('\n\n---\n\n')
+    } else if ((name === 'ul' || name === 'ol') && !isClosing) {
+      lists.push({ next: name === 'ol' ? 1 : undefined })
+    } else if ((name === 'ul' || name === 'ol') && isClosing) {
+      lists.pop()
+      emit('\n\n')
     } else if (name === 'li' && !isClosing) {
-      emit('\n- ')
-    } else if ((name === 'td' || name === 'th') && isClosing) {
-      emit(' | ')
-    } else if (name === 'tr' && isClosing) {
-      emit('\n')
+      const list = lists.at(-1)
+      const marker = list?.next === undefined ? '- ' : `${list.next++}. `
+      emit(`\n${'  '.repeat(Math.min(MAX_LIST_INDENT, Math.max(0, lists.length - 1)))}${marker}`)
+    } else if (name === 'table') {
+      if (!isClosing) {
+        tableDepth++
+        if (tableDepth === 1) {
+          row = 0
+          emit('\n\n', true)
+        }
+      } else if (tableDepth > 0) {
+        tableDepth--
+        if (tableDepth === 0) emit('\n\n', true)
+      }
+    } else if (name === 'tr' && tableDepth === 1) {
+      if (!isClosing) {
+        cells = 0
+        emit('\n| ', true)
+      } else {
+        // 1 行目の後ろに区切り行を入れて、Markdown の表として読めるようにする
+        if (row === 0 && cells > 0) emit(`\n|${' --- |'.repeat(cells)}`, true)
+        row++
+      }
+    } else if ((name === 'td' || name === 'th') && isClosing && tableDepth > 0) {
+      // 内側の表のセルは外側のセルの中身なので、区切りの | を出さない
+      if (tableDepth === 1) cells++
+      emit(tableDepth === 1 ? ' | ' : ' ')
     } else if (BLOCKS.has(name) && isClosing) {
       emit('\n\n')
     }
