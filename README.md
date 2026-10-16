@@ -3,17 +3,13 @@
 Claude CodeのペインにMarkdown / HTMLファイルやWebページ（URL）をプレビュー表示するmodです。
 macOSとWindowsのどちらでも同じファイル一式で動きます。
 
-## 必要な環境変数・シークレット
+## 必要な環境変数
 
-modを使うだけなら必須の値はありません。自動レビューを使う場合は以下を設定してください。
-未設定のまま使うと、ワークフローが失敗します。
+modを使うだけなら必須の値はありません。
 
 | 名前 | 用途 | 設定先 | 必須 |
 | --- | --- | --- | --- |
-| `CLAUDE_CODE_OAUTH_TOKEN` | PRやIssueのコメントで`@claude`とメンションしたときに、Claude Codeがレビューする（`.github/workflows/claude-review.yml`） | Actionsシークレット | 自動レビューを使うなら必須 |
 | `FILE_PREVIEW_BROWSER` | スクリーンショットに使うブラウザ実行ファイルのフルパス。Chrome / Edge / Chromiumが自動で見つからないときだけ設定する | ローカル環境変数 | 任意 |
-
-### ローカルに設定する
 
 macOS（`~/.zshrc`などに追記）:
 
@@ -27,36 +23,20 @@ Windows（設定後は新しいターミナルから有効）:
 setx FILE_PREVIEW_BROWSER "<値>"
 ```
 
-### GitHub Actionsに設定する
-
-`CLAUDE_CODE_OAUTH_TOKEN`の値は`claude setup-token`で取得し、リポジトリのシークレットに登録します。
-値はプロンプトで入力するためシェル履歴に残りません。
-
-```
-gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo HTNCode/file-preview
-```
-
-Web UIからはSettings > Secrets and variables > Actionsで登録します。
-
-### 値を貼り付けるときの注意
-
-長いトークンは端末の折り返し表示をコピーすると、途中に空白や改行が混入することがあります。
-壊れた値を登録すると認証が即座に拒否され、原因の分かりにくいエラーになります。
-貼り付けた値が1行で、前後と途中に空白がないことを確認してください。
-
 ## できること
 
 | 対象 | 表示のしかた |
 | --- | --- |
-| `.md` / `.markdown` / `.mdx` | Claudeの返答と同じMarkdownレンダラで描画（下記の組み直しをしてから描く） |
-| `.html` / `.htm` | 本文をMarkdownに変換して描画（見出し・番号付きや入れ子のリスト・表・リンク・コードを保持） |
+| `.md` / `.markdown` / `.mdx` | Claudeの返答と同じMarkdownレンダラで描画（ターミナルでは下記の組み直しをしてから描く） |
+| `.html` / `.htm` / `.xhtml` | 本文をMarkdownに変換して描画（見出し・番号付きや入れ子のリスト・表・リンク・コードを保持） |
 | `http(s)://`のURL | ページを取得してHTMLと同じく変換して描画 |
 | その他のテキスト | 拡張子付きのコードブロックとして描画 |
 
 - ローカルファイルは1.5秒ごとに更新日時を確認し、保存されたら自動で再読み込みします
 - ペインのボタン: `[再読み込み]`（r）、`[スクリーンショット]`（s、ローカルのHTMLファイルのみ）、`ブラウザで開く`リンク、`[閉じる]`（q）
   - キーで押せるのはペインにフォーカスがあるときだけです。ペインをクリックするか、ctrl+x tabでフォーカスを移してから押してください
-- Claudeに「このHTMLをプレビューして」と頼むと、modが登録するツール`mcp__file-preview__open`をClaudeが呼んでペインを開きます
+- Claudeに「このファイルをプレビューして」と頼むと、modが登録するツール`mcp__file-preview__open`をClaudeが呼んでペインを開きます
+  - このツールで開けるのはローカルのファイルだけです。URLは`/preview <URL>`で自分で開いてください。ツールの呼び出しはClaude Codeの許可確認を通らないため、Claudeが確認なしに任意のURLへ通信できないようにしています
 
 ## 使い方
 
@@ -68,54 +48,45 @@ Web UIからはSettings > Secrets and variables > Actionsで登録します。
 /preview            # 直前のプレビューをもう一度開く
 ```
 
+`~`はホームディレクトリに展開されません。ホーム配下のファイルは絶対パスで指定してください。
+
 ## インストール
-
-GitHubのリポジトリから入れる方法と、ローカルのフォルダから入れる方法があります。どちらもマーケットプレイスを登録してからインストールします。
-
-### GitHubから
 
 ```bash
 claude plugin marketplace add HTNCode/file-preview
 claude plugin install file-preview@htncode
 ```
 
-更新するときは次を実行し、Claude Codeを再起動します。
+インストール後にClaude Codeを再起動すると使えます。更新するときは次を実行し、再起動します。
 
 ```bash
 claude plugin marketplace update htncode
 claude plugin update file-preview@htncode
 ```
 
-インストール済みのmodはバージョンごとにキャッシュされます。`.claude-plugin/plugin.json`に`version`を書いているので、変更をpushするときは`version`も上げてください。上げないと更新しても古い内容のままになります（`version`を消すと、commitごとに追従する動きに変わります）。
-
 起動時の自動更新は既定でオフです。`/plugin`の画面で有効にできます。
 
-### ローカルのフォルダから
+### 以前の名前（file-preview-local）で入れている場合
 
-zipを展開してできる`file-preview`フォルダ（`.claude-plugin`ディレクトリを含む、プラグインのルートフォルダ）を登録します。
-
-macOS:
+マーケットプレイス名を`file-preview-local`から`htncode`に変えました。古い登録を外してから入れ直してください。
 
 ```bash
-claude plugin marketplace add ~/path/to/file-preview
+claude plugin uninstall file-preview@file-preview-local
+claude plugin marketplace remove file-preview-local
 ```
 
-Windows（PowerShell）:
+### cloneしたフォルダから入れる場合
 
-```powershell
-claude plugin marketplace add "$env:USERPROFILE\path\to\file-preview"
-```
-
-登録したら、Claude Codeのプロンプトで実行します。
-
-```
-/plugin install file-preview@htncode
+```bash
+git clone https://github.com/HTNCode/file-preview.git
+claude plugin marketplace add ./file-preview
+claude plugin install file-preview@htncode
 ```
 
 ### インストールせずに試す場合
 
 ```bash
-claude --plugin-dir ~/path/to/file-preview
+claude --plugin-dir ./file-preview
 ```
 
 常に読み込ませたい場合は、`~/.claude/settings.json`（Windowsは`%USERPROFILE%\.claude\settings.json`）の`env`に書く方法もあります。
@@ -143,21 +114,23 @@ claude --plugin-dir ~/path/to/file-preview
 - 撮影は同時に1件だけです。撮影中に別のファイルへ切り替えた場合、古い画像は付きません
 - ブラウザのエラー出力（stderr）はパスやURLを含むことがあるため表示せず、終了コードだけを出します
 
-## 秘密情報の扱い
+## 秘密情報とリンクの扱い
 
 - このmodがClaudeに返す応答（コマンド出力・ツール結果）では、URLのユーザー名・パスワード・クエリ・フラグメントを省略します。URL取得エラーも元の例外文は使わず、HTTPステータスなど安全な情報だけで伝えます
 - ただし、利用者が入力したコマンド引数や、Claudeがツールに渡した引数そのものは会話履歴に残ります。トークン付きURLはなるべくプレビュー対象にしないでください
 - ペイン内の表示はローカルだけなので、元のURLのまま出します
+- Webから取得した文書では`file:`のリンクを描きません。ホスト付きの`file://server/...`はローカルの文書でも描きません。Windowsで開くとSMB接続になり、認証情報が外部ホストへ送られうるためです
 
 ## 制限
 
 - HTMLはDOMを使わない文字列変換なので、CSSのレイアウトやJavaScriptで描画される内容は再現しません
-- ターミナルで読みやすいよう、表示の前に次のように組み直します（ファイルの内容は変えません）
-  - コードブロックは枠付きの箱で描く
+  - セルに見出しや段落を持つレイアウト用の表は、表にせず本文として流します
+- ターミナルでは、読みやすいよう表示の前に次のように組み直します（ファイルの内容は変えません。ほかの面ではそのまま描きます）
+  - コードブロックは枠付きの箱で描く（100個まで）
   - 見出しの前に記号（■ □ ▸）を付け、箇条書きは`・`、番号付きは番号を文字のまま残す
-  - 表は罫線が狭いペインで崩れるため、「列名: 値」の縦並びにする
+  - 表は罫線が狭いペインで崩れるため、「列名: 値」の縦並びにする（50列まで）
 - 太字・斜体・見出しの文字の大きさは端末とフォントに依存します。日本語の太字や斜体を出せないフォントでは区別が付きません
-- 表示は先頭10万文字までです
+- 表示は先頭9万文字までです（ペイン全体で描ける量に、タイトルやボタンの分の余裕を残しています）
 - ローカルファイルは4 MiBまでです。読む前にサイズを確認して、超えるものは開きません
 - URLの応答本文は、Claude Codeのホスト側の取得処理で全体が読み込まれます。modの中で取得量を制限するAPIが無いため、変換前に200万文字で切り詰めます
 - ローカルファイルも同じく、変換前に先頭200万文字までで切り詰めます。切り詰めたことはペインに表示されません
@@ -169,7 +142,7 @@ claude --plugin-dir ~/path/to/file-preview
 
 ```
 .claude-plugin/plugin.json       マニフェスト
-.claude-plugin/marketplace.json  ローカルマーケットプレイス定義
+.claude-plugin/marketplace.json  マーケットプレイス定義（htncode）
 hooks/hooks.json                 hooks モジュールの指定
 hooks/register.tsx               コマンド・ツール・ペイン描画・I/O
 hooks/load.ts                    種類判定・パス変換・本文の整形（純粋関数）
@@ -178,22 +151,35 @@ hooks/display.ts                 ペインの表示用の組み直し（純粋�
 hooks/screenshot.ts              ブラウザ候補と起動引数の組み立て（純粋関数）
 types/index.d.ts                 $.state の型定義
 tests/preview.test.ts            claude plugin test 用のテスト
-.github/workflows/claude-review.yml  @claude メンションで動く自動レビュー
+.github/workflows/claude-review.yml  @claude メンションで動く自動レビュー（メンテナー用）
 .github/dependabot.yml           ワークフローの actions の更新追従
+LICENSE                          Unlicense
+SECURITY.md                      脆弱性の報告方法
 ```
 
-## 開発
+## 開発者向け
 
 ```bash
 claude plugin validate ./file-preview
 claude plugin test ./file-preview
 ```
 
+- インストール済みのmodはバージョンごとにキャッシュされます。`.claude-plugin/plugin.json`に`version`を書いているので、変更を公開するときは`version`も上げてください。上げないと、利用者が更新しても古い内容のままになります
+
+### @claude自動レビュー（メンテナー用）
+
+PRやIssueのコメントで`@claude`とメンションすると、Claude Codeがレビューします。反応するのはリポジトリのオーナーとコラボレーターのコメントだけで、Claudeが読むコメントもメンテナー本人のものに限っています。
+
+- 使うにはActionsシークレット`CLAUDE_CODE_OAUTH_TOKEN`が必要です。値は`claude setup-token`で取得し、`gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo <owner>/<repo>`で登録します（値はプロンプトで入力するのでシェル履歴に残りません）。フォークで使う場合は、自分のリポジトリに登録してください
+- 長いトークンは端末の折り返し表示をコピーすると、途中に空白や改行が混入することがあります。貼り付けた値が1行で、空白がないことを確認してください
+- ジョブはリポジトリへの書き込み権限を持ちます。第三者のPRやIssueの中で`@claude`を使うと、その本文がClaudeへの入力になるため、外部からの投稿では使わないでください
+- 公開リポジトリではActionsのログも公開されます。デバッグログを有効にした再実行はしないでください
+
 ## 連絡先
 
 不具合の報告や要望はGitHubのIssueへお願いします。それ以外のお問い合わせは https://www.htncode.com/contact から受け付けています。
-セキュリティ上の問題は公開のIssueには書かず、GitHubの「Report a vulnerability」（Securityタブ）から非公開で報告してください。
+セキュリティ上の問題は公開のIssueには書かず、[SECURITY.md](SECURITY.md)の手順で非公開で報告してください。
 
 ## ライセンス
 
-[Unlicense](LICENSE)（パブリックドメイン）です。自由に使い、改変し、再配布できます。
+[Unlicense](LICENSE)で公開しています。条件なしで使用・改変・再配布できます。
