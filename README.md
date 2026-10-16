@@ -3,6 +3,47 @@
 Claude CodeのペインにMarkdown / HTMLファイルやWebページ（URL）をプレビュー表示するmodです。
 macOSとWindowsのどちらでも同じファイル一式で動きます。
 
+## 必要な環境変数・シークレット
+
+modを使うだけなら必須の値はありません。自動レビューを使う場合は以下を設定してください。
+未設定のまま使うと、ワークフローが失敗します。
+
+| 名前 | 用途 | 設定先 | 必須 |
+| --- | --- | --- | --- |
+| `CLAUDE_CODE_OAUTH_TOKEN` | PRやIssueのコメントで`@claude`とメンションしたときに、Claude Codeがレビューする（`.github/workflows/claude-review.yml`） | Actionsシークレット | 自動レビューを使うなら必須 |
+| `FILE_PREVIEW_BROWSER` | スクリーンショットに使うブラウザ実行ファイルのフルパス。Chrome / Edge / Chromiumが自動で見つからないときだけ設定する | ローカル環境変数 | 任意 |
+
+### ローカルに設定する
+
+macOS（`~/.zshrc`などに追記）:
+
+```
+export FILE_PREVIEW_BROWSER="<値>"
+```
+
+Windows（設定後は新しいターミナルから有効）:
+
+```
+setx FILE_PREVIEW_BROWSER "<値>"
+```
+
+### GitHub Actionsに設定する
+
+`CLAUDE_CODE_OAUTH_TOKEN`の値は`claude setup-token`で取得し、リポジトリのシークレットに登録します。
+値はプロンプトで入力するためシェル履歴に残りません。
+
+```
+gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo HTNCode/file-preview
+```
+
+Web UIからはSettings > Secrets and variables > Actionsで登録します。
+
+### 値を貼り付けるときの注意
+
+長いトークンは端末の折り返し表示をコピーすると、途中に空白や改行が混入することがあります。
+壊れた値を登録すると認証が即座に拒否され、原因の分かりにくいエラーになります。
+貼り付けた値が1行で、前後と途中に空白がないことを確認してください。
+
 ## できること
 
 | 対象 | 表示のしかた |
@@ -28,21 +69,45 @@ macOSとWindowsのどちらでも同じファイル一式で動きます。
 
 ## インストール
 
-zipを展開してできる`file-preview`フォルダ（`.claude-plugin`ディレクトリを含む、プラグインのルートフォルダ）を、マーケットプレイスとして登録してからインストールします。
+GitHubのリポジトリから入れる方法と、ローカルのフォルダから入れる方法があります。どちらもマーケットプレイスを登録してからインストールします。
 
-### macOS
+### GitHubから
+
+非公開リポジトリなので、gitがプロンプトを出さずに認証できる環境が必要です。GitHub CLIを使う場合は、`gh auth login`のあとに`gh auth setup-git`を実行しておきます。
+
+```bash
+claude plugin marketplace add HTNCode/file-preview
+claude plugin install file-preview@file-preview-local
+```
+
+更新するときは次を実行し、Claude Codeを再起動します。
+
+```bash
+claude plugin marketplace update file-preview-local
+claude plugin update file-preview@file-preview-local
+```
+
+インストール済みのmodはバージョンごとにキャッシュされます。`.claude-plugin/plugin.json`に`version`を書いているので、変更をpushするときは`version`も上げてください。上げないと更新しても古い内容のままになります（`version`を消すと、commitごとに追従する動きに変わります）。
+
+起動時の自動更新は既定でオフです。`/plugin`の画面で有効にできますが、その場合もgitがプロンプトなしで認証できる必要があります。環境変数`GITHUB_TOKEN`を設定するだけでは認証されません。
+
+### ローカルのフォルダから
+
+zipを展開してできる`file-preview`フォルダ（`.claude-plugin`ディレクトリを含む、プラグインのルートフォルダ）を登録します。
+
+macOS:
 
 ```bash
 claude plugin marketplace add ~/path/to/file-preview
 ```
 
-### Windows（PowerShell）
+Windows（PowerShell）:
 
 ```powershell
 claude plugin marketplace add "$env:USERPROFILE\path\to\file-preview"
 ```
 
-### 共通（Claude Codeのプロンプトで実行）
+登録したら、Claude Codeのプロンプトで実行します。
 
 ```
 /plugin install file-preview@file-preview-local
@@ -108,6 +173,8 @@ hooks/html-to-markdown.ts        HTML から Markdown への変換（純粋関�
 hooks/screenshot.ts              ブラウザ候補と起動引数の組み立て（純粋関数）
 types/index.d.ts                 $.state の型定義
 tests/preview.test.ts            claude plugin test 用のテスト
+.github/workflows/claude-review.yml  @claude メンションで動く自動レビュー
+.github/dependabot.yml           ワークフローの actions の更新追従
 ```
 
 ## 開発
