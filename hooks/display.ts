@@ -12,11 +12,15 @@ const MAX_CODE_BOXES = 100
 const HEADING_MARKS = ['■', '□', '▸', '▸', '▸', '▸']
 
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
-const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/
+// `.` が U+2028 / U+2029 に当たらないと、末尾の `$` で失敗して空白と本文の長さの積だけ後戻りする。
+// s フラグで `.` を行内のすべての文字に当て、1 回の照合で終わらせる
+const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/s
 const RULE = /^ {0,3}([-*_])([ \t]*\1){2,}[ \t]*$/
-const BULLET = /^([ \t]*)[-*+][ \t]+(.*)$/
-const ORDERED = /^([ \t]*)(\d{1,9})([.)])[ \t]+(.*)$/
-const TABLE_SEPARATOR = /^[ \t]*\|?([ \t]*:?-+:?[ \t]*\|)*[ \t]*:?-+:?[ \t]*\|?[ \t]*$/
+const BULLET = /^([ \t]*)[-*+][ \t]+(.*)$/s
+const ORDERED = /^([ \t]*)(\d{1,9})([.)])[ \t]+(.*)$/s
+const SEPARATOR_CELL = /^:?-+:?$/
+// 縦並びにする列数の上限。列が極端に多い表で、行数 × 列数の処理と出力が膨らまないようにする
+const MAX_COLUMNS = 50
 
 /**
  * 字下げを全角スペースに置き換える。行頭の半角スペースのままだと、4 つ以上でコードブロックとして描かれるため。
@@ -43,8 +47,9 @@ function transformLine(line: string): string {
   return line
 }
 
+// 区切り行を 1 つの正規表現で判定すると、空白を分け合う量指定子で後戻りが 2 乗に膨らむため、セルごとに見る
 function isTableSeparator(line: string): boolean {
-  return line.includes('-') && line.includes('|') && TABLE_SEPARATOR.test(line)
+  return line.includes('-') && line.includes('|') && splitRow(line).every((cell) => SEPARATOR_CELL.test(cell))
 }
 
 /** 表の 1 行をセルに分ける。`\|` はセルの区切りではなく文字の `|` */
@@ -57,7 +62,7 @@ export function splitRow(line: string): string[] {
 
 /** 表を「列名: 値」の縦並びにする。行ごとに先頭の列を・で始め、行の間を空行で区切る */
 export function tableToList(header: string[], rows: string[][]): string[] {
-  const names = header.map((name, index) => (name === '' ? `列${index + 1}` : name))
+  const names = header.slice(0, MAX_COLUMNS).map((name, index) => (name === '' ? `列${index + 1}` : name))
   if (rows.length === 0) return [names.join(' / ')]
   const lines: string[] = []
   rows.forEach((row, rowIndex) => {

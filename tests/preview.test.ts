@@ -286,6 +286,15 @@ describe('ペインの表示用の組み直し', () => {
     ])
   })
 
+  test('細工した行や表でも線形時間で終わる', async () => {
+    const started = Date.now()
+    toDisplayBlocks(`-${' '.repeat(50_000)}${'a'.repeat(50_000)} `)
+    toDisplayBlocks(`# ${' '.repeat(50_000)}${'a'.repeat(50_000)} `)
+    toDisplayBlocks(`a|b\n|${' '.repeat(100_000)}-${' '.repeat(100_000)}x`)
+    toDisplayBlocks(`${'|'.repeat(50_000)}\n|-|\n${'a|\n'.repeat(25_000)}`)
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+
   test('閉じていないコードブロックは末尾まで続く', async () => {
     expect(toDisplayBlocks('```\na\nb')).toEqual([{ kind: 'code', text: '```\na\nb' }])
   })
