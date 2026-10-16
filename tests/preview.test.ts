@@ -343,6 +343,29 @@ describe('ペインの表示用の組み直し', () => {
     expect(Date.now() - started).toBeLessThan(1000)
   })
 
+  test('インデントのコードと、リスト内で字下げしたフェンスの中身は書き換えない', async () => {
+    expect(toDisplayBlocks('段落\n\n    steps:\n      - uses: x')).toEqual([
+      { kind: 'markdown', text: '段落\n\n    steps:\n      - uses: x' },
+    ])
+    expect(toDisplayBlocks('1. 設定する:\n\n    ```yaml\n    - uses: x\n    ```')).toEqual([
+      { kind: 'markdown', text: '1\\. 設定する:' },
+      { kind: 'code', text: '```yaml\n- uses: x\n```' },
+    ])
+  })
+
+  test('行頭のインラインコードはフェンスとみなさず、リスト直後の --- は見出しにしない', async () => {
+    expect(toDisplayBlocks('```a``` の書き方\n本文')).toEqual([{ kind: 'markdown', text: '```a``` の書き方\n本文' }])
+    expect(toDisplayBlocks('- a\n---')).toEqual([{ kind: 'markdown', text: '・a\n\n---' }])
+  })
+
+  test('表の縦並びは見出しより多いセルも残し、出力を上限で打ち切る', async () => {
+    expect(toDisplayBlocks('| h |\n| --- |\n| a | b |')).toEqual([{ kind: 'markdown', text: '・h: a\n　列2: b' }])
+    const huge = `| ${'n'.repeat(20_000)} |\n| --- |\n${'| a |\n'.repeat(20_000)}`
+    const text = toDisplayBlocks(huge).map((block) => block.text).join('')
+    expect(text.length).toBeLessThan(100_000)
+    expect(text.endsWith('...（以降は省略）')).toBe(true)
+  })
+
   test('閉じていないコードブロックは末尾まで続く', async () => {
     expect(toDisplayBlocks('```\na\nb')).toEqual([{ kind: 'code', text: '```\na\nb' }])
   })
