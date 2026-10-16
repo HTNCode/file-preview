@@ -132,7 +132,7 @@ export function codeFence(text: string, language = ''): string {
   return `${marker}${language}\n${text}\n${marker}`
 }
 
-// \u5165\u308c\u5b50\u306e\u30ea\u30b9\u30c8\u306e\u5b57\u4e0b\u3052\u3060\u3051\u306f\u6b8b\u3059\u3002\u307b\u304b\u306e\u884c\u982d\u306e\u7a7a\u767d\u306f\u3001\u5143\u306e HTML \u306e\u6539\u884c\u3084\u30a4\u30f3\u30c7\u30f3\u30c8\u306b\u7531\u6765\u3059\u308b\u306e\u3067\u6d88\u3059
+// 入れ子のリストの字下げだけは残す。ほかの行頭の空白は、元の HTML の改行やインデントに由来するので消す
 const LIST_ITEM_INDENT = /^( +)(?=- |\d+\. )/
 
 function normalizeText(text: string): string {
