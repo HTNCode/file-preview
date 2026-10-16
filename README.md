@@ -70,21 +70,43 @@ Web UIからはSettings > Secrets and variables > Actionsで登録します。
 
 ## インストール
 
-zipを展開してできる`file-preview`フォルダ（`.claude-plugin`ディレクトリを含む、プラグインのルートフォルダ）を、マーケットプレイスとして登録してからインストールします。
+GitHubのリポジトリから入れる方法と、ローカルのフォルダから入れる方法があります。どちらもマーケットプレイスを登録してからインストールします。
 
-### macOS
+### GitHubから
+
+非公開リポジトリなので、`gh auth login`済みなど、gitでこのリポジトリをcloneできる環境が必要です。
+
+```bash
+claude plugin marketplace add HTNCode/file-preview
+claude plugin install file-preview@file-preview-local
+```
+
+更新するときは次を実行し、Claude Codeを再起動します。
+
+```bash
+claude plugin marketplace update file-preview-local
+claude plugin update file-preview@file-preview-local
+```
+
+インストール済みのmodはバージョンごとにキャッシュされます。変更をpushするときは`.claude-plugin/plugin.json`の`version`も上げてください。上げないと更新しても古い内容のままになります。
+
+### ローカルのフォルダから
+
+zipを展開してできる`file-preview`フォルダ（`.claude-plugin`ディレクトリを含む、プラグインのルートフォルダ）を登録します。
+
+macOS:
 
 ```bash
 claude plugin marketplace add ~/path/to/file-preview
 ```
 
-### Windows（PowerShell）
+Windows（PowerShell）:
 
 ```powershell
 claude plugin marketplace add "$env:USERPROFILE\path\to\file-preview"
 ```
 
-### 共通（Claude Codeのプロンプトで実行）
+登録したら、Claude Codeのプロンプトで実行します。
 
 ```
 /plugin install file-preview@file-preview-local
