@@ -74,23 +74,21 @@ GitHubのリポジトリから入れる方法と、ローカルのフォルダ�
 
 ### GitHubから
 
-非公開リポジトリなので、gitがプロンプトを出さずに認証できる環境が必要です。GitHub CLIを使う場合は、`gh auth login`のあとに`gh auth setup-git`を実行しておきます。
-
 ```bash
 claude plugin marketplace add HTNCode/file-preview
-claude plugin install file-preview@file-preview-local
+claude plugin install file-preview@htncode
 ```
 
 更新するときは次を実行し、Claude Codeを再起動します。
 
 ```bash
-claude plugin marketplace update file-preview-local
-claude plugin update file-preview@file-preview-local
+claude plugin marketplace update htncode
+claude plugin update file-preview@htncode
 ```
 
 インストール済みのmodはバージョンごとにキャッシュされます。`.claude-plugin/plugin.json`に`version`を書いているので、変更をpushするときは`version`も上げてください。上げないと更新しても古い内容のままになります（`version`を消すと、commitごとに追従する動きに変わります）。
 
-起動時の自動更新は既定でオフです。`/plugin`の画面で有効にできますが、その場合もgitがプロンプトなしで認証できる必要があります。環境変数`GITHUB_TOKEN`を設定するだけでは認証されません。
+起動時の自動更新は既定でオフです。`/plugin`の画面で有効にできます。
 
 ### ローカルのフォルダから
 
@@ -111,7 +109,7 @@ claude plugin marketplace add "$env:USERPROFILE\path\to\file-preview"
 登録したら、Claude Codeのプロンプトで実行します。
 
 ```
-/plugin install file-preview@file-preview-local
+/plugin install file-preview@htncode
 ```
 
 ### インストールせずに試す場合
@@ -190,3 +188,12 @@ tests/preview.test.ts            claude plugin test 用のテスト
 claude plugin validate ./file-preview
 claude plugin test ./file-preview
 ```
+
+## 連絡先
+
+不具合の報告や要望はGitHubのIssueへお願いします。それ以外のお問い合わせは https://www.htncode.com/contact から受け付けています。
+セキュリティ上の問題は公開のIssueには書かず、GitHubの「Report a vulnerability」（Securityタブ）から非公開で報告してください。
+
+## ライセンス
+
+[Unlicense](LICENSE)（パブリックドメイン）です。自由に使い、改変し、再配布できます。
