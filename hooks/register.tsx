@@ -158,6 +158,16 @@ async function shoot($: EngineInterface): Promise<void> {
   }
 }
 
+/**
+ * ボタンや監視の周期から待たずに走らせる処理の失敗を、未処理の reject にせず記録する。
+ * 失敗の理由はペインの通知にも出しているので、ここではログに残すだけにする
+ */
+function runInBackground($: EngineInterface, task: Promise<void>): void {
+  task.catch((error: unknown) => {
+    $.ui.log(`file-preview: ${errorText(error)}`).catch(() => undefined)
+  })
+}
+
 /** ローカルファイルは更新日時を見て自動で再読み込みする（URL は対象外） */
 async function watch($: EngineInterface): Promise<void> {
   const generation = openGeneration
@@ -195,7 +205,7 @@ export const register: Register = (on) => {
         required: ['target'],
       },
     })
-    $.clock.every(WATCH_INTERVAL_MS, () => void watch($))
+    $.clock.every(WATCH_INTERVAL_MS, () => runInBackground($, watch($)))
     return next(e)
   })
 
@@ -266,16 +276,16 @@ export const register: Register = (on) => {
         <Text bold>{doc.title}</Text>
         <Text dimColor>{doc.source}</Text>
         <Box flexDirection="row" gap={1}>
-          <Button key="reload" hotkey="r" onPress={() => void reload($)}>
+          <Button key="reload" hotkey="r" onPress={() => runInBackground($, reload($))}>
             再読み込み
           </Button>
           {canShoot && (
-            <Button key="shot" hotkey="s" onPress={() => void shoot($)}>
+            <Button key="shot" hotkey="s" onPress={() => runInBackground($, shoot($))}>
               スクリーンショット
             </Button>
           )}
           <Link href={href} label="ブラウザで開く" />
-          <Button key="close" hotkey="q" role="dismiss" onPress={() => void $.ui.close({ id: PANE })}>
+          <Button key="close" hotkey="q" role="dismiss" onPress={() => runInBackground($, $.ui.close({ id: PANE }))}>
             閉じる
           </Button>
         </Box>
@@ -283,6 +293,9 @@ export const register: Register = (on) => {
         {shotImage}
         {doc.markdown === '' ? (
           <Markdown text="(本文なし)" />
+        ) : e.surface !== 'terminal' ? (
+          // 組み直しはターミナルの描画の弱点を補うためのもの。ほかの面は Markdown をそのまま描ける
+          <Markdown text={doc.markdown} />
         ) : (
           toDisplayBlocks(doc.markdown).map((block, index) =>
             block.kind === 'code' ? (
