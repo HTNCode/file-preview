@@ -53,6 +53,34 @@ describe('HTML から Markdown への変換', () => {
     expect(markdown).toBe('| 項目 | 値 |\n| --- | --- |\n| a\\|b | 1 2 |')
   })
 
+  test('ブロックを持つレイアウト用の表は、表にせず見出しやリストを保つ', async () => {
+    const layout = htmlToMarkdown('<table><tr><td><h1>題</h1><p>説明</p><ul><li>a</li></ul></td></tr></table>')
+    expect(layout).toContain('# 題')
+    expect(layout).toContain('\n- a')
+    expect(layout).not.toContain('---')
+    const unclosed = htmlToMarkdown('<table><tr><td>x</td></tr><h1>題</h1><p>段落</p>')
+    expect(unclosed).toContain('# 題')
+    expect(unclosed).not.toContain('---')
+  })
+
+  test('データの表のセル内のリンクと画像の | で表を壊さない', async () => {
+    const markdown = htmlToMarkdown(
+      '<table><tr><th>h</th></tr><tr><td><a href="https://e.com/a|b">x</a><img alt="c|d"></td></tr></table>',
+    )
+    expect(markdown).toBe('| h |\n| --- |\n| [x](https://e.com/a%7Cb)[画像: c\\|d] |')
+  })
+
+  test('<ol start> と <li value> の番号を保つ', async () => {
+    expect(htmlToMarkdown('<ol start="3"><li>c</li><li value="7">g</li><li>h</li></ol>')).toBe('3. c\n7. g\n8. h')
+  })
+
+  test('表が大量にあっても線形時間で終わる', async () => {
+    const started = Date.now()
+    htmlToMarkdown('<table><tr><td>a</td></tr></table><p>b</p>'.repeat(50_000))
+    htmlToMarkdown('<table><td>'.repeat(100_000))
+    expect(Date.now() - started).toBeLessThan(3000)
+  })
+
   test('リンク先の丸括弧はどちらもエンコードして Markdown のリンクを壊さない', async () => {
     expect(htmlToMarkdown('<a href="https://example.com/a(b)">説明</a>')).toBe('[説明](https://example.com/a%28b%29)')
   })

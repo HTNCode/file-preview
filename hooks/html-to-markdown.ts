@@ -135,6 +135,15 @@ export function findTagEnd(html: string, lt: number): number {
   return -1
 }
 
+// 表の中にこれが `</table>` より先に現れたら、レイアウト用の表とみなす
+const LAYOUT_SIGNAL = /<\/table\b|<(?:h[1-6]|p|ul|ol|li|pre|div|table|blockquote|section|article|dl|form)\b/gi
+
+/** `<ol start>` と `<li value>` の番号。整数でなければ undefined */
+function listNumber(value: string | undefined): number | undefined {
+  if (value === undefined || !/^\s*-?\d{1,9}\s*$/.test(value)) return undefined
+  return Number.parseInt(value, 10)
+}
+
 // 入れ子のリストを字下げする段数の上限。深い入れ子で 1 行の字下げが膨らまないようにする
 const MAX_LIST_INDENT = 10
 
@@ -176,15 +185,29 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
   let i = 0
   // ul / ol の入れ子。番号付きは次に振る番号を持つ
   const lists: Array<{ next: number | undefined }> = []
-  // 表は一番外側だけを Markdown の表にする。内側の表は外側のセルの文字として流す
+  // 表は一番外側だけを Markdown の表にする。内側の表は外側のセルの文字として流す。
+  // ただしセルに見出しや段落などのブロックを持つ表（レイアウト用の表）は、表にせず本文として流す。
+  // 表にすると改行がすべて空白になり、ページ全体が 1 行に潰れるため
   let tableDepth = 0
+  let isDataTable = false
   let row = 0
   let cells = 0
+  const inDataTable = () => isDataTable && tableDepth > 0
 
-  // 表の中では改行を空白にする。セル内の改行は Markdown の表の行を壊すため。
+  /**
+   * 表の開始位置から先を見て、最初に現れるのが `</table>` ならデータの表、ブロック要素ならレイアウト用の表とみなす。
+   * 一番外側の表ごとに 1 回だけ、その表の中だけを読むので、全体の走査量は入力長に比例する
+   */
+  const isDataTableAhead = (from: number) => {
+    LAYOUT_SIGNAL.lastIndex = from
+    const found = LAYOUT_SIGNAL.exec(html)
+    return found === null || found[0][1] === '/'
+  }
+
+  // データの表の中では改行を空白にする。セル内の改行は Markdown の表の行を壊すため。
   // 表の行や区切り行そのものを出すときだけ isStructural で改行を通す
   const emit = (text: string, isStructural = false) => {
-    const value = tableDepth > 0 && pre === undefined && !isStructural ? text.replace(/\n+/g, ' ') : text
+    const value = inDataTable() && pre === undefined && !isStructural ? text.replace(/\n+/g, ' ') : text
     produced += value.length
     if (pre !== undefined) pre.push(value)
     else out.push(value)
@@ -192,7 +215,7 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
   const pushText = (raw: string) => {
     const decoded = decodeEntities(raw)
     if (pre !== undefined) emit(decoded)
-    else emit((tableDepth > 0 ? decoded.replace(/\|/g, '\\|') : decoded).replace(/\s+/g, ' '))
+    else emit((inDataTable() ? decoded.replace(/\|/g, '\\|') : decoded).replace(/\s+/g, ' '))
   }
   const flushText = () => {
     segments.push({ text: out.join('') })
@@ -265,7 +288,11 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
         const frame = links.pop()
         if (frame?.target !== undefined) {
           const label = out.splice(frame.start).join('').replace(/[[\]]/g, '').trim()
-          const target = frame.target.replace(/\(/g, '%28').replace(/\)/g, '%29')
+          // データの表の中では | がセルの区切りになるので、リンク先でも符号化する
+          const target = frame.target
+            .replace(/\(/g, '%28')
+            .replace(/\)/g, '%29')
+            .replace(/\|/g, inDataTable() ? '%7C' : '|')
           // 増えた分（URL と記号）も出力量に数え、上限の外で文字列が膨らまないようにする
           produced += target.length + 4
           out.push(label === '' ? '' : `[${label}](${target})`)
@@ -277,33 +304,40 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
       emit('`')
     } else if (name === 'img' && !isClosing) {
       const alt = attribute(attrs, 'alt')
-      if (alt !== undefined && alt.trim() !== '') emit(`[画像: ${alt.trim()}]`)
+      const label = inDataTable() ? alt?.trim().replace(/\|/g, '\\|') : alt?.trim()
+      if (label !== undefined && label !== '') emit(`[画像: ${label}]`)
     } else if (name === 'br') {
       emit('\n')
     } else if (name === 'hr') {
       emit('\n\n---\n\n')
     } else if ((name === 'ul' || name === 'ol') && !isClosing) {
-      lists.push({ next: name === 'ol' ? 1 : undefined })
+      lists.push({ next: name === 'ol' ? (listNumber(attribute(attrs, 'start')) ?? 1) : undefined })
     } else if ((name === 'ul' || name === 'ol') && isClosing) {
       lists.pop()
       emit('\n\n')
     } else if (name === 'li' && !isClosing) {
       const list = lists.at(-1)
+      const value = listNumber(attribute(attrs, 'value'))
+      if (list?.next !== undefined && value !== undefined) list.next = value
       const marker = list?.next === undefined ? '- ' : `${list.next++}. `
       emit(`\n${'  '.repeat(Math.min(MAX_LIST_INDENT, Math.max(0, lists.length - 1)))}${marker}`)
     } else if (name === 'table') {
       if (!isClosing) {
         tableDepth++
         if (tableDepth === 1) {
+          isDataTable = isDataTableAhead(i)
           row = 0
-          emit('\n\n', true)
         }
+        if (tableDepth === 1 || !isDataTable) emit('\n\n', true)
       } else if (tableDepth > 0) {
         tableDepth--
-        if (tableDepth === 0) emit('\n\n', true)
+        if (tableDepth === 0 || !isDataTable) emit('\n\n', true)
       }
-    } else if (name === 'tr' && tableDepth === 1) {
-      if (!isClosing) {
+    } else if (name === 'tr' && tableDepth > 0) {
+      if (!isDataTable || tableDepth > 1) {
+        // レイアウト用の表と内側の表は、行ごとに改行するだけの本文として流す
+        if (isClosing) emit('\n')
+      } else if (!isClosing) {
         cells = 0
         emit('\n| ', true)
       } else {
@@ -312,9 +346,9 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
         row++
       }
     } else if ((name === 'td' || name === 'th') && isClosing && tableDepth > 0) {
-      // 内側の表のセルは外側のセルの中身なので、区切りの | を出さない
-      if (tableDepth === 1) cells++
-      emit(tableDepth === 1 ? ' | ' : ' ')
+      // データの表の内側の表のセルは外側のセルの中身なので、区切りの | を出さない
+      if (isDataTable && tableDepth === 1) cells++
+      emit(isDataTable && tableDepth > 1 ? ' ' : ' | ')
     } else if (BLOCKS.has(name) && isClosing) {
       emit('\n\n')
     }
