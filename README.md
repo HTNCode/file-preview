@@ -5,14 +5,13 @@ macOSとWindowsのどちらでも同じファイル一式で動きます。
 
 ## 必要な環境変数・シークレット
 
-modを使うだけなら必須の値はありません。自動レビューや自動更新を使う場合は以下を設定してください。
-未設定のまま使うと、ワークフローや自動更新が失敗します。
+modを使うだけなら必須の値はありません。自動レビューを使う場合は以下を設定してください。
+未設定のまま使うと、ワークフローが失敗します。
 
 | 名前 | 用途 | 設定先 | 必須 |
 | --- | --- | --- | --- |
 | `CLAUDE_CODE_OAUTH_TOKEN` | PRやIssueのコメントで`@claude`とメンションしたときに、Claude Codeがレビューする（`.github/workflows/claude-review.yml`） | Actionsシークレット | 自動レビューを使うなら必須 |
 | `FILE_PREVIEW_BROWSER` | スクリーンショットに使うブラウザ実行ファイルのフルパス。Chrome / Edge / Chromiumが自動で見つからないときだけ設定する | ローカル環境変数 | 任意 |
-| `GITHUB_TOKEN` | GitHubからインストールした場合に、起動時の自動更新で非公開リポジトリを取得する。手動の更新はgitの認証情報で動くので不要 | ローカル環境変数 | 任意 |
 
 ### ローカルに設定する
 
@@ -74,7 +73,7 @@ GitHubのリポジトリから入れる方法と、ローカルのフォルダ�
 
 ### GitHubから
 
-非公開リポジトリなので、`gh auth login`済みなど、gitでこのリポジトリをcloneできる環境が必要です。
+非公開リポジトリなので、gitがプロンプトを出さずに認証できる環境が必要です。GitHub CLIを使う場合は、`gh auth login`のあとに`gh auth setup-git`を実行しておきます。
 
 ```bash
 claude plugin marketplace add HTNCode/file-preview
@@ -88,7 +87,9 @@ claude plugin marketplace update file-preview-local
 claude plugin update file-preview@file-preview-local
 ```
 
-インストール済みのmodはバージョンごとにキャッシュされます。変更をpushするときは`.claude-plugin/plugin.json`の`version`も上げてください。上げないと更新しても古い内容のままになります。
+インストール済みのmodはバージョンごとにキャッシュされます。`.claude-plugin/plugin.json`に`version`を書いているので、変更をpushするときは`version`も上げてください。上げないと更新しても古い内容のままになります（`version`を消すと、commitごとに追従する動きに変わります）。
+
+起動時の自動更新は既定でオフです。`/plugin`の画面で有効にできますが、その場合もgitがプロンプトなしで認証できる必要があります。環境変数`GITHUB_TOKEN`を設定するだけでは認証されません。
 
 ### ローカルのフォルダから
 
