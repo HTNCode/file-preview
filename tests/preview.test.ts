@@ -276,3 +276,37 @@ test('/preview でファイルを読み込み、ペインに描画する', async
     await ui.unmount()
   }
 })
+
+test('閉じるボタン（q）でペインを閉じる', async ($, on) => {
+  on('fs.stat', async () => ({
+    value: { kind: 'file', size: 3, mtimeMs: 10, isLink: false, realPath: '/work/readme.md' },
+  }))
+  on('fs.read', async () => ({ value: '# タイトル' }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  const closed: string[] = []
+  on('ui.close', async (_$, e) => {
+    closed.push(e.id)
+    return { value: undefined }
+  })
+
+  await $.command.run({
+    command: 'preview',
+    args: 'readme.md',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'file-preview',
+      surface,
+      component: 'Pane',
+      requestId: 'file-preview',
+      props: PANE_PROPS,
+    })
+    expect(await ui.find({ key: 'close' })).toBeDefined()
+    await ui.press({ key: 'close' })
+    await ui.unmount()
+  }
+  expect(closed).toEqual(['file-preview', 'file-preview'])
+})

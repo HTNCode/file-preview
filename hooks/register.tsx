@@ -267,6 +267,9 @@ export const register: Register = (on) => {
             </Button>
           )}
           <Link href={href} label="ブラウザで開く" />
+          <Button key="close" hotkey="q" role="dismiss" onPress={() => void $.ui.close({ id: PANE })}>
+            閉じる
+          </Button>
         </Box>
         {notice !== '' && <Text color="yellow">{notice}</Text>}
         {shotImage}

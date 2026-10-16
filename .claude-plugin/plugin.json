@@ -1,6 +1,6 @@
 {
   "name": "file-preview",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Markdown / HTML ファイルと URL を Claude Code のペインでプレビューする",
   "author": { "name": "htncode" },
   "types": "./types/index.d.ts"
