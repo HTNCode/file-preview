@@ -186,11 +186,12 @@ export const register: Register = (on) => {
     await $.tool.register({
       name: 'open',
       description:
-        'Show a Markdown file, an HTML file, a text file or an http(s) URL in the preview pane of the user. ' +
-        'Use when the user asks to preview or view a document.',
+        'Show a local Markdown, HTML or text file in the preview pane of the user. ' +
+        'Use when the user asks to preview or view a document. ' +
+        'URLs are not accepted: ask the user to run /preview <url> themselves.',
       inputSchema: {
         type: 'object',
-        properties: { target: { type: 'string', description: 'Absolute or relative file path, or http(s) URL' } },
+        properties: { target: { type: 'string', description: 'Absolute or relative local file path' } },
         required: ['target'],
       },
     })
@@ -219,6 +220,12 @@ export const register: Register = (on) => {
       return { deny: 'target (file path or http(s) URL) is required' }
     }
     const target = unquote(input.target)
+    // このフックはツールの結果を自分で返すため、エンジンの許可確認を通らない。
+    // URL を受け付けると、確認なしに任意の宛先へ GET を送れてしまう（クエリに秘密値を載せた持ち出し、
+    // ループバックやメタデータ宛ての SSRF）。URL の取得は利用者が打つ /preview に限る
+    if (isWebUrl(target)) {
+      return { deny: 'URLs cannot be opened by the model. Ask the user to run /preview <url> themselves.' }
+    }
     try {
       const doc = await show($, target)
       return { result: `Opened ${redactSource(doc.source)} in the preview pane.` }

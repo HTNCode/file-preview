@@ -321,6 +321,17 @@ test('/preview でファイルを読み込み、ペインに描画する', async
   }
 })
 
+test('モデルが呼ぶツールでは URL を取得しない', async ($, on) => {
+  let fetched = 0
+  on('http.fetch', async () => {
+    fetched++
+    return { value: { ok: true, status: 200, text: '<p>x</p>' } }
+  })
+  const called = await $.tool.call({ tool: 'mcp__file-preview__open', input: { target: 'https://example.com/?q=1' } })
+  expect(called.deny).toContain('/preview')
+  expect(fetched).toBe(0)
+})
+
 test('閉じるボタン（q）でペインを閉じる', async ($, on) => {
   on('fs.stat', async () => ({
     value: { kind: 'file', size: 3, mtimeMs: 10, isLink: false, realPath: '/work/readme.md' },
