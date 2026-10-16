@@ -1,0 +1,9 @@
+version: 2
+updates:
+  # ワークフローの actions は SHA で固定しているので、更新はこの設定で追従する。
+  # 依存マニフェスト（package.json 等）を足したら、そのエコシステムもここに追加する
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
