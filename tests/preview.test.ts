@@ -1,0 +1,278 @@
+import { describe, expect, test } from 'claude-code/testing'
+
+import { extractTitle, htmlToMarkdown } from '../hooks/html-to-markdown'
+import { MAX_CHARS, docFromFile, redactSource, sanitize, toFileUrl } from '../hooks/load'
+import { hardenHtmlForScreenshot, screenshotArgv, shotKey, windowsBrowsers } from '../hooks/screenshot'
+
+const PAGE = `<!doctype html><html><head><title>Hello &amp; Welcome</title><style>p{color:red}</style></head>
+<body><h1>見出し</h1><p>本文 <strong>太字</strong> と <a href="/docs">リンク</a></p>
+<ul><li>one</li><li>two</li></ul><pre>const a = 1 &lt; 2
+  indented</pre><script>alert(1)</script></body></html>`
+
+const PANE_PROPS = {
+  title: 'Preview',
+  isFocused: false,
+  bodyColumns: 80,
+  placement: 'dock',
+  scroll: { offset: 0, bodyRows: 30 },
+  view: {},
+} as const
+
+describe('HTML から Markdown への変換', () => {
+  test('見出し・強調・リンク・リスト・pre を変換し、script と style を落とす', async () => {
+    const markdown = htmlToMarkdown(PAGE, 'https://example.com/a/')
+    expect(markdown).toContain('# 見出し')
+    expect(markdown).toContain('**太字**')
+    expect(markdown).toContain('[リンク](https://example.com/docs)')
+    expect(markdown).toContain('- one')
+    expect(markdown).toContain('```\nconst a = 1 < 2\n  indented\n```')
+    expect(markdown).not.toContain('alert')
+    expect(markdown).not.toContain('color:red')
+    expect(extractTitle(PAGE)).toBe('Hello & Welcome')
+  })
+
+  test('リンク先の丸括弧はどちらもエンコードして Markdown のリンクを壊さない', async () => {
+    expect(htmlToMarkdown('<a href="https://example.com/a(b)">説明</a>')).toBe('[説明](https://example.com/a%28b%29)')
+  })
+
+  test('javascript: のリンクは文字だけ残す', async () => {
+    expect(htmlToMarkdown('<a href="javascript:alert(1)">x</a>')).toBe('x')
+  })
+
+  test('コード内のエンティティはタグとして消さずに文字で残す', async () => {
+    expect(htmlToMarkdown('<p><code>&lt;div&gt;</code></p>')).toBe('`<div>`')
+  })
+
+  test('Object のプロトタイプ名と同じ実体参照・タグ名を文字のまま扱う', async () => {
+    expect(htmlToMarkdown('<constructor>a &constructor; b</constructor>')).toBe('a &constructor; b')
+  })
+
+  test('閉じない < が大量に続く入力でも線形時間で終わる', async () => {
+    const started = Date.now()
+    const markdown = htmlToMarkdown('<'.repeat(1_000_000))
+    const unclosedTags = htmlToMarkdown('<a href="x'.repeat(100_000))
+    const unclosedBlocks = htmlToMarkdown('<h1><script>'.repeat(100_000))
+    expect(Date.now() - started).toBeLessThan(3000)
+    expect(markdown.startsWith('<<<<')).toBe(true)
+    expect(markdown.endsWith('...（以降は省略）')).toBe(true)
+    expect(unclosedTags.length).toBeGreaterThan(0)
+    expect(unclosedBlocks).toBe('#')
+  })
+
+  test('入れ子のリンクが深くても線形時間で終わる', async () => {
+    const depth = 100_000
+    const started = Date.now()
+    const markdown = htmlToMarkdown(`${'<a href="/">'.repeat(depth)}${'x'.repeat(depth)}${'</a>'.repeat(depth)}`, 'https://e.com/')
+    expect(Date.now() - started).toBeLessThan(3000)
+    expect(markdown).toBe(`[${'x'.repeat(depth)}](https://e.com/)`)
+  })
+
+  test('本文に書かれた退避用の目印が pre の中身に化けない', async () => {
+    const marker = '\u0000FENCE0\u0000'
+    const markdown = htmlToMarkdown(`<pre>${'A'.repeat(1000)}</pre>${marker.repeat(1000)}`)
+    expect(markdown.length).toBeLessThan(20_000)
+    expect(markdown.startsWith(`\`\`\`\n${'A'.repeat(1000)}\n\`\`\``)).toBe(true)
+  })
+
+  test('長いベース URL と大量の相対リンクでも出力が膨らまない', async () => {
+    const base = `https://e.com/${'p'.repeat(2000)}`
+    const markdown = htmlToMarkdown('<a href="#x">x</a>'.repeat(100_000), base)
+    expect(markdown.length).toBeLessThan(500_000)
+    expect(markdown.endsWith('...（以降は省略）')).toBe(true)
+    expect(htmlToMarkdown('<a href="#x">x</a>', `https://e.com/${'p'.repeat(3000)}`)).toBe('x')
+  })
+
+  test('属性値の中の > や < でタグを切らない', async () => {
+    expect(htmlToMarkdown('<a title="1 > 0" href="/docs">リンク</a>', 'https://e.com/')).toBe('[リンク](https://e.com/docs)')
+    expect(htmlToMarkdown("<a data-x='<b>' href=\"/d\">x</a>", 'https://e.com/')).toBe('[x](https://e.com/d)')
+    expect(htmlToMarkdown('1 < 2 かつ 3 > 2')).toBe('1 < 2 かつ 3 > 2')
+    expect(htmlToMarkdown(`<a title="see href='/wrong'" href="/right">リンク</a>`, 'https://e.com/')).toBe(
+      '[リンク](https://e.com/right)',
+    )
+  })
+
+  test('自己終了の svg の後ろの本文を失わない', async () => {
+    expect(htmlToMarkdown('<svg/><h1>本文</h1>')).toBe('# 本文')
+    expect(htmlToMarkdown('<svg viewBox="0 0 1 1" /><p>続き</p>')).toBe('続き')
+  })
+
+  test('小文字化で長さが変わる文字があっても後続の本文を失わない', async () => {
+    const markdown = htmlToMarkdown(`<p>${'İ'.repeat(30)}</p><SCRIPT>x</SCRIPT><p>残す本文</p>`)
+    expect(markdown).toContain('残す本文')
+    expect(markdown).not.toContain('x')
+    expect(extractTitle(`<p>${'İ'.repeat(30)}</p><TITLE>題名</TITLE>`)).toBe('題名')
+  })
+
+  test('閉じない引用符を含むタグが大量にあっても線形時間で終わる', async () => {
+    const started = Date.now()
+    htmlToMarkdown(`<a "${'<a x '.repeat(400_000)}`)
+    htmlToMarkdown(`<a "<a '`.repeat(200_000))
+    expect(Date.now() - started).toBeLessThan(3000)
+  })
+
+  test('出力が上限を超えたら打ち切る', async () => {
+    const markdown = htmlToMarkdown('<p>x</p>'.repeat(500_000))
+    expect(markdown.endsWith('...（以降は省略）')).toBe(true)
+  })
+
+  test('pre の中にバッククォートが大量にあってもフェンスが閉じない', async () => {
+    const markdown = htmlToMarkdown(`<pre>${'````a'.repeat(200_000)}</pre>`)
+    expect(markdown.startsWith('`````\n')).toBe(true)
+  })
+})
+
+describe('パスと本文の扱い', () => {
+  test('macOS と Windows のパスを file URL にする', async () => {
+    expect(toFileUrl('/Users/me/a b.html')).toBe('file:///Users/me/a%20b.html')
+    expect(toFileUrl('C:\\Users\\me\\a#1.html')).toBe('file:///C:/Users/me/a%231.html')
+  })
+
+  test('撮影はローカル HTML だけで、ブラウザの通信とスクリプトを止めて起動する', async () => {
+    const argv = screenshotArgv('chrome', '/x/a.html', '/tmp/s.png', '/tmp/p')
+    expect(argv).toContain('--proxy-server=http://127.0.0.1:9')
+    expect(argv).toContain('--proxy-bypass-list=<-loopback>')
+    expect(argv).toContain('--blink-settings=scriptEnabled=false')
+    expect(argv.at(-1)).toBe('file:///x/a.html')
+    expect(() => screenshotArgv('chrome', 'https://e.com/', '/tmp/s.png', '/tmp/p')).toThrow()
+    expect(() => screenshotArgv('chrome', '\\\\server\\share\\a.html', '/tmp/s.png', '/tmp/p')).toThrow()
+    expect(() => screenshotArgv('chrome', '//server/share/a.html', '/tmp/s.png', '/tmp/p')).toThrow()
+  })
+
+  test('撮影用コピーは CSP で読み込みを止め、元の meta と link を無効にする', async () => {
+    const hardened = hardenHtmlForScreenshot(
+      '<META http-equiv="refresh" content="0;url=file://evil/x"><link rel="prefetch" href="file://evil/y"><img src="file://evil/z">',
+    )
+    expect(hardened.startsWith('<!DOCTYPE html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy"')).toBe(true)
+    expect(hardened).toContain("default-src 'none'")
+    expect(hardened).not.toContain('refresh')
+    expect(hardened).not.toContain('prefetch')
+    expect(hardened.match(/<meta\b/gi)).toHaveLength(2)
+    expect(hardened.match(/<link\b/gi)).toBeNull()
+    expect(hardened).toContain('<img src="file://evil/z">')
+    expect(hardened).toContain("base-uri 'none'; form-action 'none'")
+  })
+
+  test('撮影用コピーは固定の DOCTYPE と CSP を必ず先頭に置き、元の DOCTYPE で位置をずらされない', async () => {
+    const head = '<!DOCTYPE html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy"'
+    const attack = `<!DOCTYPE html PUBLIC 'x>'><img src="file://attacker.example/share/pixel.png">`
+    expect(hardenHtmlForScreenshot(attack).startsWith(head)).toBe(true)
+    expect(hardenHtmlForScreenshot(attack).endsWith(attack)).toBe(true)
+    expect(hardenHtmlForScreenshot('<html><body>x</body></html>').startsWith(head)).toBe(true)
+  })
+
+  test('meta と link を取り除いても、ほかの要素の入れ子を変えない', async () => {
+    const page =
+      '<html><head><meta charset="utf-8"><link rel="stylesheet" href="a.css"><style>body>div{color:red}</style></head>' +
+      '<body><div class="c">本文</div></body></html>'
+    const hardened = hardenHtmlForScreenshot(page)
+    expect(hardened).not.toMatch(/x-meta|x-link/i)
+    expect(hardened).toContain('<html><head>  <style>body>div{color:red}</style></head><body><div class="c">本文</div></body></html>')
+  })
+
+  test('取り除いた跡が前後とつながって新しいタグにならない', async () => {
+    const hardened = hardenHtmlForScreenshot('<<meta x>meta http-equiv="refresh" content="0;url=file://evil/x">')
+    expect(hardened.match(/<meta\b/gi)).toHaveLength(2)
+    expect(hardened).toContain('< meta http-equiv')
+  })
+
+  test('引用符内の > や閉じない meta でもタグを残さない', async () => {
+    const quoted = hardenHtmlForScreenshot(`<meta content='a>b' http-equiv="refresh"><p>x</p>`)
+    expect(quoted).not.toContain('refresh')
+    expect(quoted.endsWith(' <p>x</p>')).toBe(true)
+    const unclosed = hardenHtmlForScreenshot('<meta http-equiv="refresh" content="0;url=file://evil/x"')
+    expect(unclosed.match(/<meta\b/gi)).toHaveLength(2)
+    expect(unclosed).toContain('&lt;meta http-equiv')
+    expect(hardenHtmlForScreenshot('<metadata>x</metadata>')).toContain('<metadata>x</metadata>')
+  })
+
+  test('どんな入力でも、先頭の 2 つ以外に生きた meta と link を残さない', async () => {
+    const cases = [
+      '<<meta x>meta http-equiv="refresh" content="0;url=file://evil/x">',
+      `<meta a" http-equiv="refresh" content="0;url=file://evil/x>y" >`,
+      '<!-- <meta x="--> <meta http-equiv=refresh content=0> "> -->',
+      '<p title="<meta x=\'">\'<meta http-equiv=refresh content=0>\'>',
+      `<meta${'"'.repeat(5)} http-equiv=refresh><LINK rel=prefetch href=//evil/y>`,
+      `<meta ${'a'.repeat(9000)}>`,
+      '<META\thttp-equiv=refresh content=0>',
+      '<meta\nhttp-equiv=refresh content=0>',
+    ]
+    for (const input of cases) {
+      const hardened = hardenHtmlForScreenshot(input)
+      expect(hardened.match(/<meta(?=[\s/>]|$)/gi)).toHaveLength(2)
+      expect(hardened.match(/<link(?=[\s/>]|$)/gi)).toBeNull()
+    }
+  })
+
+  test('閉じない meta や引用符が大量にあっても線形時間で終わる', async () => {
+    const started = Date.now()
+    hardenHtmlForScreenshot('<meta "'.repeat(300_000))
+    hardenHtmlForScreenshot(`<meta "${'<meta '.repeat(300_000)}`)
+    hardenHtmlForScreenshot('<link'.repeat(400_000))
+    expect(Date.now() - started).toBeLessThan(3000)
+  })
+
+  test('撮影画像のファイル名は対象ファイルごとに分かれる', async () => {
+    expect(shotKey('/x/a.html')).not.toBe(shotKey('/x/b.html'))
+    expect(shotKey('/x/a.html')).toBe(shotKey('/x/a.html'))
+    expect(shotKey('/x/a.html')).toMatch(/^[0-9a-f]{8}$/)
+  })
+
+  test('Windows のブラウザ候補はどの場所でも Chrome を先に探し、Edge は最後の手段にする', async () => {
+    const candidates = windowsBrowsers(['C:\\Program Files (x86)', 'C:\\Program Files', 'C:\\Users\\me\\AppData\\Local'])
+    expect(candidates.slice(0, 3).every((path) => path.endsWith('\\Google\\Chrome\\Application\\chrome.exe'))).toBe(true)
+    expect(candidates.slice(3).every((path) => path.endsWith('\\Microsoft\\Edge\\Application\\msedge.exe'))).toBe(true)
+  })
+
+  test('制御文字を落とし、CRLF を LF にする', async () => {
+    expect(sanitize('a\r\nb\u0007c')).toBe('a\nbc')
+  })
+
+  test('省略メッセージを含めても上限文字数を超えない', async () => {
+    expect(sanitize('x'.repeat(MAX_CHARS)).length).toBe(MAX_CHARS)
+    const cut = sanitize('x'.repeat(MAX_CHARS + 1))
+    expect(cut.length).toBe(MAX_CHARS)
+    expect(cut.endsWith('先頭のみ表示）')).toBe(true)
+  })
+
+  test('応答に載せる URL から認証情報とクエリを外す', async () => {
+    expect(redactSource('https://user:pw@example.com/a?token=SECRET#x')).toBe('https://example.com/a (クエリ等は省略)')
+    expect(redactSource('https://example.com/a')).toBe('https://example.com/a')
+    expect(redactSource('/local/path.md')).toBe('/local/path.md')
+  })
+
+  test('拡張子に応じて種類を決める', async () => {
+    expect(docFromFile('/x/readme.md', '# T', 1).kind).toBe('markdown')
+    expect(docFromFile('C:\\x\\page.html', PAGE, 1).title).toBe('Hello & Welcome')
+    expect(docFromFile('/x/main.ts', 'const a = 1', 1).markdown).toBe('```ts\nconst a = 1\n```')
+  })
+})
+
+test('/preview でファイルを読み込み、ペインに描画する', async ($, on) => {
+  on('fs.stat', async () => ({
+    value: { kind: 'file', size: 3, mtimeMs: 10, isLink: false, realPath: '/work/readme.md' },
+  }))
+  on('fs.read', async () => ({ value: '# タイトル\n\n本文' }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+
+  const ran = await $.command.run({
+    command: 'preview',
+    args: 'readme.md',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+  expect(ran.text).toBe('プレビュー: /work/readme.md')
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'file-preview',
+      surface,
+      component: 'Pane',
+      requestId: 'file-preview',
+      props: PANE_PROPS,
+    })
+    expect(await ui.find({ type: 'Markdown' })).toBeDefined()
+    expect(await ui.find({ key: 'reload' })).toBeDefined()
+    expect(await ui.find({ key: 'shot' })).toBeUndefined()
+    await ui.unmount()
+  }
+})

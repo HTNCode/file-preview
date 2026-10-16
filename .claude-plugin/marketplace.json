@@ -1,0 +1,6 @@
+{
+  "name": "file-preview-local",
+  "owner": { "name": "htncode" },
+  "description": "file-preview mod をローカルからインストールするためのマーケットプレイス",
+  "plugins": [{ "name": "file-preview", "source": "./" }]
+}
