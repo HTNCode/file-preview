@@ -48,8 +48,8 @@ Web UIからはSettings > Secrets and variables > Actionsで登録します。
 
 | 対象 | 表示のしかた |
 | --- | --- |
-| `.md` / `.markdown` / `.mdx` | Claudeの返答と同じMarkdownレンダラで描画 |
-| `.html` / `.htm` | 本文をMarkdownに変換して描画（見出し・リスト・リンク・コードを保持。表はセルを` \| `区切りのテキストで表示） |
+| `.md` / `.markdown` / `.mdx` | Claudeの返答と同じMarkdownレンダラで描画（下記の組み直しをしてから描く） |
+| `.html` / `.htm` | 本文をMarkdownに変換して描画（見出し・番号付きや入れ子のリスト・表・リンク・コードを保持） |
 | `http(s)://`のURL | ページを取得してHTMLと同じく変換して描画 |
 | その他のテキスト | 拡張子付きのコードブロックとして描画 |
 
@@ -154,6 +154,11 @@ claude --plugin-dir ~/path/to/file-preview
 ## 制限
 
 - HTMLはDOMを使わない文字列変換なので、CSSのレイアウトやJavaScriptで描画される内容は再現しません
+- ターミナルで読みやすいよう、表示の前に次のように組み直します（ファイルの内容は変えません）
+  - コードブロックは枠付きの箱で描く
+  - 見出しの前に記号（■ □ ▸）を付け、箇条書きは`・`、番号付きは番号を文字のまま残す
+  - 表は罫線が狭いペインで崩れるため、「列名: 値」の縦並びにする
+- 太字・斜体・見出しの文字の大きさは端末とフォントに依存します。日本語の太字や斜体を出せないフォントでは区別が付きません
 - 表示は先頭10万文字までです
 - ローカルファイルは4 MiBまでです。読む前にサイズを確認して、超えるものは開きません
 - URLの応答本文は、Claude Codeのホスト側の取得処理で全体が読み込まれます。modの中で取得量を制限するAPIが無いため、変換前に200万文字で切り詰めます
@@ -171,6 +176,7 @@ hooks/hooks.json                 hooks モジュールの指定
 hooks/register.tsx               コマンド・ツール・ペイン描画・I/O
 hooks/load.ts                    種類判定・パス変換・本文の整形（純粋関数）
 hooks/html-to-markdown.ts        HTML から Markdown への変換（純粋関数）
+hooks/display.ts                 ペインの表示用の組み直し（純粋関数）
 hooks/screenshot.ts              ブラウザ候補と起動引数の組み立て（純粋関数）
 types/index.d.ts                 $.state の型定義
 tests/preview.test.ts            claude plugin test 用のテスト

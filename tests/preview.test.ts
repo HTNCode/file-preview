@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
+import { toDisplayBlocks } from '../hooks/display'
 import { extractTitle, htmlToMarkdown } from '../hooks/html-to-markdown'
 import { MAX_CHARS, docFromFile, redactSource, sanitize, toFileUrl } from '../hooks/load'
 import { hardenHtmlForScreenshot, screenshotArgv, shotKey, windowsBrowsers } from '../hooks/screenshot'
@@ -260,6 +261,33 @@ describe('パスと本文の扱い', () => {
     expect(docFromFile('/x/readme.md', '# T', 1).kind).toBe('markdown')
     expect(docFromFile('C:\\x\\page.html', PAGE, 1).title).toBe('Hello & Welcome')
     expect(docFromFile('/x/main.ts', 'const a = 1', 1).markdown).toBe('```ts\nconst a = 1\n```')
+  })
+})
+
+describe('ペインの表示用の組み直し', () => {
+  test('見出しに記号を付け、箇条書きを・にし、番号は文字として残す', async () => {
+    const blocks = toDisplayBlocks('# 題\n\n## 節\n\n- a\n    - b\n1. c\n\n---')
+    expect(blocks).toEqual([{ kind: 'markdown', text: '# ■ 題\n\n## □ 節\n\n・a\n　　・b\n1\\. c\n\n---' }])
+  })
+
+  test('コードブロックは別のブロックにし、中身は書き換えない', async () => {
+    const blocks = toDisplayBlocks('前\n```ts\n- not a list\n# not a heading\n```\n後')
+    expect(blocks).toEqual([
+      { kind: 'markdown', text: '前' },
+      { kind: 'code', text: '```ts\n- not a list\n# not a heading\n```' },
+      { kind: 'markdown', text: '後' },
+    ])
+  })
+
+  test('表は「列名: 値」の縦並びにする', async () => {
+    const blocks = toDisplayBlocks('| 名前 | 用途 | 必須 |\n| --- | :-: | --- |\n| A | x\\|y | |\n| B | z | 任意 |')
+    expect(blocks).toEqual([
+      { kind: 'markdown', text: '・名前: A\n　用途: x|y\n\n・名前: B\n　用途: z\n　必須: 任意' },
+    ])
+  })
+
+  test('閉じていないコードブロックは末尾まで続く', async () => {
+    expect(toDisplayBlocks('```\na\nb')).toEqual([{ kind: 'code', text: '```\na\nb' }])
   })
 })
 

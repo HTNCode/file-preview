@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { PreviewDoc, PreviewShot } from '../types'
+import { toDisplayBlocks } from './display'
 import { docFromFile, docFromUrl, isWebUrl, redactSource, toFileUrl } from './load'
 import {
   MAC_BROWSERS,
@@ -273,7 +274,19 @@ export const register: Register = (on) => {
         </Box>
         {notice !== '' && <Text color="yellow">{notice}</Text>}
         {shotImage}
-        <Markdown text={doc.markdown === '' ? '(本文なし)' : doc.markdown} />
+        {doc.markdown === '' ? (
+          <Markdown text="(本文なし)" />
+        ) : (
+          toDisplayBlocks(doc.markdown).map((block, index) =>
+            block.kind === 'code' ? (
+              <Box key={`code-${index}`} borderStyle="round" paddingX={1}>
+                <Markdown text={block.text} />
+              </Box>
+            ) : (
+              <Markdown key={`text-${index}`} text={block.text} />
+            ),
+          )
+        )}
       </Box>
     )
   })
