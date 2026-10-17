@@ -116,27 +116,36 @@ function letterPattern(letter: string): string {
 // URL のパーサーは途中のタブ・LF・CR を取り除くため、それらを挟んだ書き方も対象にする
 // （生の LF と CR はリンク先に書けないので、文字参照の形だけ拾う）。
 // リンクの文脈（`](` や `<`）では絞らない。参照定義の改行や `\:` など、文脈の書き方が多く漏れやすいため。
-// 語の途中（英数字の直後）は対象外にする（isInWord）。`profile:` などは file スキームにならず、書き換えると本文やコードが変わってしまう
+// 語の途中（英数字の直後。ただし `;` を省いた数値参照の直後は除く）は対象外にする（isInWord）。`profile:` などは file スキームにならず、書き換えると本文やコードが変わってしまう
 const SCHEME_GAP = `(?:\\t|&tab;|&newline;|${charRef(9)}|${charRef(10)}|${charRef(13)})*`
 const FILE_SCHEME = new RegExp(
   [...'file'].map(letterPattern).join(SCHEME_GAP) + SCHEME_GAP + `(?::|\\\\:|&colon;|${charRef(58)})`,
   'gi',
 )
 
-/** `&#32` や `&#xa` のように `;` を省いた数値参照の直後か。参照は数字や a〜f で終わるが、復号すると語の区切りになりうる */
+/** offset の直前から、chars に当たる文字が続く間さかのぼった位置 */
+function runStart(text: string, offset: number, chars: RegExp): number {
+  let start = offset
+  while (start > 0 && chars.test(text[start - 1] ?? '')) start--
+  return start
+}
+
+/**
+ * `&#32` や `&#xa` のように `;` を省いた数値参照の直後か。参照は数字や a〜f で終わるが、復号すると語の区切りになりうる。
+ * さかのぼって読むのは 16 進の文字（0-9、a-f）の並びだけ。どの一致も 16 進以外の文字（i、l、#、;、x など）を含むので、
+ * 前の一致を越えてさかのぼることはなく、全体は線形のまま
+ */
 function followsBareNumericRef(text: string, offset: number): boolean {
-  let decimal = offset
-  while (decimal > 0 && /[0-9]/.test(text[decimal - 1] ?? '')) decimal--
+  const decimal = runStart(text, offset, /[0-9]/)
   if (decimal < offset && text.slice(decimal - 2, decimal) === '&#') return true
-  let hex = offset
-  while (hex > 0 && /[0-9a-f]/i.test(text[hex - 1] ?? '')) hex--
+  const hex = runStart(text, offset, /[0-9a-f]/i)
   return hex < offset && /^&#x$/i.test(text.slice(hex - 3, hex))
 }
 
-// 戻って読むのは一致の直前の数字の並びだけで、一致どうしで重ならないので、全体は線形のまま
 function isInWord(text: string, offset: number): boolean {
   return /[A-Za-z0-9]/.test(text[offset - 1] ?? '') && !followsBareNumericRef(text, offset)
 }
+
 // ローカルの文書で残すのは、開く側が正規化しても `file:///` の後ろにホスト名が来ないリンクだけ
 // （`file:////host` などは Windows で UNC として開かれうる）。判定は、リンク先として読まれうる範囲の全体で行う。
 // リンク先は改行を含めないが、それ以外の区切りは書式ごとに違う。裸の書式は `<`・`>`・全角の空白や NBSP を含められ、
@@ -144,9 +153,10 @@ function isInWord(text: string, offset: number): boolean {
 // 置いた `< file:///a b/../x>` もリンク先になる（URL のパーサーが先頭の空白を取り除く）ので、直前の文字から書式を
 // 見分けることもできない。そこで書式に関係なく行末までを範囲にする。同じ行の後ろにある別のリンクや本文に
 // `&` や `/../` があると正当なリンクも残らないが、安全側に倒す。
-// 長さを限るのは、1 つの長い行に file: が並ぶ入力で、照合ごとに行末まで読んで2乗時間になるのを防ぐため
-const MAX_LOCAL_LINK_CHARS = 1024
-const LINK_TAIL = new RegExp(`[^\\n]{0,${MAX_LOCAL_LINK_CHARS + 1}}`, 'y')
+// 行の残りの長さを限るのは、1 つの長い行に file: が並ぶ入力で、照合ごとに行末まで読んで2乗時間になるのを防ぐため。
+// 上限を超える行（HTML から変換した長い段落など）では、正当なリンクも残らない
+const MAX_LINE_TAIL_CHARS = 1024
+const LINK_TAIL = new RegExp(`[^\\n]{0,${MAX_LINE_TAIL_CHARS + 1}}`, 'y')
 const LOCAL_PATH_HEAD = /^\/\/\/[^/\\]/
 // 開く側の正規化で `//host` に変わりうる書き方。`.` と `..` のセグメントは取り除かれ、`\` は `/` になる。
 // 文字参照（`&`）、`\` のエスケープ、%2e / %2f / %5c の符号化、URL のパーサーが取り除くタブは、それらを隠せる
@@ -155,7 +165,7 @@ const HIDES_HOST = /[\\&\t]|%(?:2e|2f|5c)|\/\.\.?(?:\/|$)/i
 function isLocalFileLink(markdown: string, from: number): boolean {
   LINK_TAIL.lastIndex = from
   const tail = LINK_TAIL.exec(markdown)?.[0] ?? ''
-  return tail.length <= MAX_LOCAL_LINK_CHARS && LOCAL_PATH_HEAD.test(tail) && !HIDES_HOST.test(tail)
+  return tail.length <= MAX_LINE_TAIL_CHARS && LOCAL_PATH_HEAD.test(tail) && !HIDES_HOST.test(tail)
 }
 
 /**
