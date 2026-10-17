@@ -522,6 +522,9 @@ describe('ペインの表示用の組み直し', () => {
     expect(text('- 項目\n\n  > 引用')).toBe('・項目\n\n> 引用')
     expect(text('- 項目\n  ---')).toBe('・項目\n\n---')
     expect(text('- 手順\n\n      def __init__(self):')).toBe('・手順\n\n    def __init__(self):')
+    // 記号で始まっていても、本文の桁より 4 以上深ければ入れ子の項目ではなくインデントのコード
+    expect(text('- 項目\n\n        - コードの中の行')).toBe('・項目\n\n      - コードの中の行')
+    expect(text('- 項目\n    - 入れ子')).toBe('・項目\n　　・入れ子')
   })
 
   test('閉じていないコードブロックは末尾まで続く', async () => {

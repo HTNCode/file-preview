@@ -236,6 +236,11 @@ export function toDisplayBlocks(markdown: string): DisplayBlock[] {
       continue
     }
 
+    // 記号で始まっていても、項目の本文の桁より 4 以上深い行は入れ子の項目ではなくインデントのコード
+    if (isInList && width >= listContentWidth + 4) {
+      push(transformListContinuation(line, listContentWidth))
+      continue
+    }
     const item = transformListItem(line)
     if (item !== undefined) {
       push(item)
