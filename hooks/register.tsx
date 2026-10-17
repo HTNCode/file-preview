@@ -100,8 +100,14 @@ async function loadPreview($: EngineInterface, target: string, within?: string):
   if (stat.kind !== 'file') throw new Error(`ファイルではありません: ${target}`)
   if (stat.size > MAX_FILE_BYTES) throw new Error(`ファイルが大きすぎます（4 MiB まで）: ${target}`)
   const absolute = stat.realPath ?? target
-  const doc = docFromFile(absolute, await $.fs.read(absolute), stat.mtimeMs)
-  return within === undefined ? doc : { ...doc, within }
+  const text = await $.fs.read(absolute)
+  if (within === undefined) return docFromFile(absolute, text, stat.mtimeMs)
+  // 確かめてから読むまでの間に途中のフォルダをリンクへ差し替えられると、読む側が外をたどる。
+  // 読んだ後にもう一度確かめ、実体が変わっていれば捨てる（間は狭まるが、なくなりはしない）
+  if ((await statForPreview($, target, within)).realPath !== absolute) {
+    throw new Error(`読み込み中に対象が差し替えられました: ${target}`)
+  }
+  return { ...docFromFile(absolute, text, stat.mtimeMs), within }
 }
 
 async function isWindows($: EngineInterface): Promise<boolean> {

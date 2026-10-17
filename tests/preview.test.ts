@@ -604,8 +604,9 @@ test('モデルが呼ぶツールではネットワークパスやスキーム�
   expect(local.deny).toBeUndefined()
   expect(String(local.result)).toContain('in the preview pane')
   // ドライブ名はスキームとみなさずに通す（テストを動かす macOS では作業ディレクトリ基準の相対パスとして解決される）
-  expect(statted.length).toBe(1)
-  expect(statted[0]?.endsWith('C:\\work\\a.md')).toBe(true)
+  // 読む前と読んだ後の 2 回、同じ対象を確かめる
+  expect(statted.length).toBe(2)
+  expect(statted.every((path) => path.endsWith('C:\\work\\a.md'))).toBe(true)
 })
 
 test('モデルが呼ぶツールで開けるのは、実体が作業ディレクトリの配下にあるファイルだけ', async ($, on) => {
@@ -864,6 +865,22 @@ test('モデルのツールで開いた HTML は、撮影でも作業ディレ�
   await pane.unmount()
   expect(reads).toBe(readsAfterOpen)
   expect(launched).toBe(0)
+})
+
+test('モデルのツールでは、読む間に対象が外へ差し替えられたら表示しない', async ($, on) => {
+  let statted = 0
+  on('session.root', async () => ({ value: '/work' }))
+  on('fs.stat', async (_$, e) => {
+    if (e.path === '/work') return { value: { kind: 'dir', size: 3, mtimeMs: 1, isLink: false, realPath: '/work' } }
+    statted++
+    // 1 回目（読む前）は配下、2 回目（読んだ後）は外を指している
+    const realPath = statted === 1 ? '/work/a.md' : '/home/me/secret.md'
+    return { value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath } }
+  })
+  on('fs.read', async () => ({ value: '# a' }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  const called = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'a.md' })
+  expect(called.deny).toBe('Could not preview it.')
 })
 
 test('撮影の後、撮影用の HTML のコピーを空にする', async ($, on) => {
