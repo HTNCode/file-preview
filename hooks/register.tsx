@@ -1,10 +1,19 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, FsStat, Register } from 'claude-code'
 
 import type { PreviewDoc, PreviewShot } from '../types'
 import { toDisplayBlocks } from './display'
 import { MAX_HREF_CHARS } from './html-to-markdown'
-import { docFromFile, docFromUrl, isInsideRoot, isWebUrl, oneLine, redactSource, toFileUrl } from './load'
+import {
+  docFromFile,
+  docFromUrl,
+  isDocumentPath,
+  isInsideRoot,
+  isWebUrl,
+  oneLine,
+  redactSource,
+  toFileUrl,
+} from './load'
 import {
   MAC_BROWSERS,
   VIEWPORT,
@@ -59,21 +68,35 @@ function isLocalPathSpelling(target: string): boolean {
   return !isNetworkPath(target) && !/^[\\/]\?\?[\\/]/.test(target) && !/^[a-z][a-z0-9+.-]+:/i.test(target)
 }
 
-/** 開ける範囲。within を渡すと、実体がその配下にあるファイルだけを開く（within も stat の realPath で渡す） */
-async function loadPreview($: EngineInterface, target: string, within?: string): Promise<PreviewDoc> {
-  if (isWebUrl(target)) {
-    // 取得失敗の例外文には URL（クエリの秘密値を含み得る）が入り得るので、そのまま使わずに言い換える
-    const response = await $.http.fetch(target).catch(() => {
-      throw new Error('URL を取得できませんでした（ネットワークエラー、または取得ポリシーによる拒否）')
-    })
-    if (!response.ok) throw new Error(`URL の取得に失敗しました（HTTP ${response.status}）`)
-    return docFromUrl(target, response.text)
-  }
+async function loadUrl($: EngineInterface, target: string): Promise<PreviewDoc> {
+  // 取得失敗の例外文には URL（クエリの秘密値を含み得る）が入り得るので、そのまま使わずに言い換える
+  const response = await $.http.fetch(target).catch(() => {
+    throw new Error('URL を取得できませんでした（ネットワークエラー、または取得ポリシーによる拒否）')
+  })
+  if (!response.ok) throw new Error(`URL の取得に失敗しました（HTTP ${response.status}）`)
+  return docFromUrl(target, response.text)
+}
+
+/**
+ * 対象を stat する。within（作業ディレクトリの実体）を渡したときは、許可確認を通らない呼び出し元が開いた
+ * ものとして、実体が within の配下にある文書（Markdown・HTML・.txt）だけを通す。拡張子も実体のパスで見るので、
+ * `a.md` という名前のリンクで設定ファイルや鍵を指しても開かない。
+ * stat の時点で存在の確認とリンクの解決は済むが、呼び出し元への応答はどの失敗も同じ文言なので、外について分かることはない
+ */
+async function statForPreview($: EngineInterface, target: string, within?: string): Promise<FsStat> {
   const stat = await $.fs.stat(target, { resolve: true })
-  // 種類や大きさより先に見て、範囲の外のファイルについては何も確かめない
-  if (within !== undefined && (stat.realPath === undefined || !isInsideRoot(stat.realPath, within))) {
-    throw new Error(`作業ディレクトリの外です: ${target}`)
+  if (within === undefined) return stat
+  if (stat.realPath === undefined || !isInsideRoot(stat.realPath, within)) {
+    throw new Error(`実体が作業ディレクトリの外です: ${target}`)
   }
+  if (!isDocumentPath(stat.realPath)) throw new Error(`Markdown・HTML・.txt 以外は開けません: ${target}`)
+  return stat
+}
+
+/** URL かローカルのファイルを読み込む。within は statForPreview を参照 */
+async function loadPreview($: EngineInterface, target: string, within?: string): Promise<PreviewDoc> {
+  if (isWebUrl(target)) return loadUrl($, target)
+  const stat = await statForPreview($, target, within)
   if (stat.kind !== 'file') throw new Error(`ファイルではありません: ${target}`)
   if (stat.size > MAX_FILE_BYTES) throw new Error(`ファイルが大きすぎます（4 MiB まで）: ${target}`)
   const absolute = stat.realPath ?? target
@@ -98,7 +121,9 @@ async function findBrowser($: EngineInterface): Promise<string | undefined> {
   return undefined
 }
 
-async function takeScreenshot($: EngineInterface, source: string): Promise<PreviewShot> {
+async function takeScreenshot($: EngineInterface, source: string, within?: string): Promise<PreviewShot> {
+  // 開いた後に対象が外を指すシンボリックリンクへ差し替えられても、開いたときと同じ範囲でしか読まない
+  await statForPreview($, source, within)
   const browser = await findBrowser($)
   if (browser === undefined) {
     throw new Error('Chrome / Edge が見つかりません。環境変数 FILE_PREVIEW_BROWSER にブラウザのパスを設定してください')
@@ -201,7 +226,7 @@ async function shoot($: EngineInterface): Promise<void> {
     if (current === null || current.kind !== 'html') return
     await setNotice($, 'スクリーンショットを撮影中...')
     try {
-      const shot = await takeScreenshot($, current.source)
+      const shot = await takeScreenshot($, current.source, current.within)
       // 撮影中に別の対象が開かれていたら（同じファイルを開き直した場合も含む）、古い撮影の結果を付けない
       if (generation !== openGeneration) return
       await update($, docAtom, (doc) => (doc === null || doc.source !== current.source ? doc : { ...doc, shot }))
@@ -252,10 +277,10 @@ export const register: Register = (on) => {
     await $.tool.register({
       name: 'open',
       description:
-        'Show a local Markdown, HTML or text file in the preview pane of the user. ' +
+        'Show a local Markdown, HTML or .txt document in the preview pane of the user. ' +
         'Use when the user asks to preview or view a document. ' +
-        'Only files inside the working directory can be opened. ' +
-        'For URLs, network paths and files elsewhere, ask the user to run /preview themselves.',
+        'Only documents inside the working directory can be opened. ' +
+        'For other files, URLs, network paths and files elsewhere, ask the user to run /preview themselves.',
       inputSchema: {
         type: 'object',
         properties: {

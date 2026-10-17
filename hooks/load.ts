@@ -69,6 +69,11 @@ export function isWebUrl(target: string): boolean {
   return /^https?:\/\//i.test(target)
 }
 
+/** 許可確認を通らない呼び出し元でも開いてよい文書か（Markdown・HTML・.txt）。設定ファイルや鍵を外すための許可リスト */
+export function isDocumentPath(path: string): boolean {
+  return MARKDOWN_EXT.test(path) || HTML_EXT.test(path) || /\.txt$/i.test(path)
+}
+
 export function kindOf(target: string): PreviewKind {
   if (isWebUrl(target)) return 'url'
   if (MARKDOWN_EXT.test(target)) return 'markdown'

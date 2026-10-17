@@ -619,6 +619,9 @@ test('モデルが呼ぶツールで開けるのは、実体が作業ディレ�
     'inside.md': `${root}/docs/inside.md`,
     'link.md': '/home/me/.ssh/id_ed25519',
     'prefix.md': `${root}shop/prefix.md`,
+    // 配下にあっても、文書（Markdown・HTML・.txt）でないものは開かない。拡張子は実体のパスで見る
+    'creds.md': `${root}/config/credentials.json`,
+    'id_ed25519': `${root}/id_ed25519`,
   }
   on('fs.stat', async (_$, e) => {
     const name = Object.keys(realPaths).find((key) => e.path.endsWith(key))
@@ -630,7 +633,7 @@ test('モデルが呼ぶツールで開けるのは、実体が作業ディレ�
     return { value: '# a' }
   })
   on('ui.open', async () => ({ value: { isPlaced: true } }))
-  for (const target of ['link.md', 'prefix.md', '/etc/unresolved.md']) {
+  for (const target of ['link.md', 'prefix.md', '/etc/unresolved.md', 'creds.md', 'id_ed25519']) {
     const called = await $.tool.call({ tool: 'mcp__file-preview__open', target })
     expect(called.deny).toBe('Could not preview it.')
   }
@@ -819,6 +822,45 @@ test('モデルのツールで開いたファイルは、再読み込みでも�
   await pane.press({ key: 'reload' })
   await pane.unmount()
   expect(read).toEqual(['/work/a.md'])
+})
+
+test('モデルのツールで開いた HTML は、撮影でも作業ディレクトリの外を読まない', async ($, on) => {
+  let realPath = '/work/a.html'
+  let reads = 0
+  let launched = 0
+  on('session.root', async () => ({ value: '/work' }))
+  on('fs.stat', async (_$, e) => {
+    if (e.path === '/work') return { value: { kind: 'dir', size: 3, mtimeMs: 1, isLink: false, realPath: '/work' } }
+    return { value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath } }
+  })
+  on('fs.read', async () => {
+    reads++
+    return { value: '<p>a</p>' }
+  })
+  on('fs.write', async () => ({ value: undefined }))
+  on('fs.exists', async () => ({ value: true }))
+  on('env.get', async (_$, e) => ({ value: e.name === 'FILE_PREVIEW_BROWSER' ? '/bin/browser' : '/tmp' }))
+  on('process.run', async () => {
+    launched++
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  const opened = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'a.html' })
+  expect(opened.deny).toBeUndefined()
+  const readsAfterOpen = reads
+  // 開いた後に、外を指すシンボリックリンクへ差し替えられた
+  realPath = '/home/me/secret.html'
+  const pane = await $.ui.mount({
+    plugin: 'file-preview',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'file-preview',
+    props: PANE_PROPS,
+  })
+  await pane.press({ key: 'shot' })
+  await pane.unmount()
+  expect(reads).toBe(readsAfterOpen)
+  expect(launched).toBe(0)
 })
 
 test('閉じるボタン（q）でペインを閉じる', async ($, on) => {
