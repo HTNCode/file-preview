@@ -130,12 +130,13 @@ async function setNotice($: EngineInterface, text: string): Promise<void> {
 }
 
 /**
- * 作業ディレクトリの配下にあるファイルだけを開く。許可確認を通らない呼び出し元に使う
- * （プロンプトインジェクションで鍵や .env をペインに出させない）。シンボリックリンクで外へ出られないよう、
- * 対象も作業ディレクトリも実体のパスで比べる
+ * 作業ディレクトリ（セッションのプロジェクトのルート）の配下にあるファイルだけを開く。許可確認を通らない
+ * 呼び出し元に使う（プロンプトインジェクションで外の鍵や設定ファイルをペインに出させない）。
+ * シンボリックリンクで外へ出られないよう、対象もルートも実体のパスで比べる。
+ * `$.session.cwd()` はシェルの cd で動くので使わない（cd 先へ範囲が移ったり、ルート直下が開けなくなったりする）
  */
-async function showInsideCwd($: EngineInterface, target: string): Promise<void> {
-  const root = (await $.fs.stat(await $.session.cwd(), { resolve: true })).realPath
+async function showInsideRoot($: EngineInterface, target: string): Promise<void> {
+  const root = (await $.fs.stat(await $.session.root(), { resolve: true })).realPath
   if (root === undefined) throw new Error('作業ディレクトリの実体を解決できません')
   await show($, target, root)
 }
@@ -150,7 +151,7 @@ async function previewForOthers($: EngineInterface, target: string): Promise<{ t
     return { text: 'URL やネットワーク上のパスのプレビューは、利用者が入力した /preview だけで受け付けます。' }
   }
   try {
-    await showInsideCwd($, target)
+    await showInsideRoot($, target)
     return { text: `プレビュー: ${target}` }
   } catch (error) {
     $.ui.log(`file-preview: preview: ${errorText(error)}`, { to: 'debug' })
@@ -304,7 +305,7 @@ export const register: Register = (on) => {
     // 失敗は 1 つの文言にまとめ、成功にはモデルが渡した target だけを返す。開けたかどうかは伝わるが、範囲が
     // 作業ディレクトリの中なので、モデルがほかのツールで分かること以上は分からない。失敗の理由はデバッグログにだけ残す
     try {
-      await showInsideCwd($, target)
+      await showInsideRoot($, target)
       return { result: `Opened ${target} in the preview pane.` }
     } catch (error) {
       $.ui.log(`file-preview: open: ${errorText(error)}`, { to: 'debug' })

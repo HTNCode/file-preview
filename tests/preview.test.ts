@@ -577,7 +577,7 @@ test('モデルが呼ぶツールでは URL を取得しない', async ($, on) =
 
 test('モデルが呼ぶツールではネットワークパスやスキーム付きの文字列を開かない', async ($, on) => {
   const statted: string[] = []
-  on('session.cwd', async () => ({ value: '/cwd' }))
+  on('session.root', async () => ({ value: '/cwd' }))
   on('fs.stat', async (_$, e) => {
     if (e.path === '/cwd') return { value: { kind: 'dir', size: 1, mtimeMs: 1, isLink: false, realPath: '/cwd' } }
     statted.push(e.path)
@@ -610,20 +610,20 @@ test('モデルが呼ぶツールではネットワークパスやスキーム�
 
 test('モデルが呼ぶツールで開けるのは、実体が作業ディレクトリの配下にあるファイルだけ', async ($, on) => {
   const read: string[] = []
-  const cwd = '/work'
-  on('session.cwd', async () => ({ value: cwd }))
+  const root = '/work'
+  on('session.root', async () => ({ value: root }))
+  // シェルの cd で動くのはセッションの cwd だけで、開ける範囲は変わらない
+  on('session.cwd', async () => ({ value: `${root}/hooks` }))
+  // 渡された名前の末尾 → 実体のパス
+  const realPaths: Record<string, string> = {
+    'inside.md': `${root}/docs/inside.md`,
+    'link.md': '/home/me/.ssh/id_ed25519',
+    'prefix.md': `${root}shop/prefix.md`,
+  }
   on('fs.stat', async (_$, e) => {
-    const realPath =
-      e.path === cwd
-        ? cwd
-        : e.path.endsWith('inside.md')
-          ? `${cwd}/docs/inside.md`
-          : e.path.endsWith('link.md')
-            ? '/home/me/.ssh/id_ed25519'
-            : e.path.endsWith('prefix.md')
-              ? `${cwd}shop/prefix.md`
-              : undefined
-    return { value: { kind: e.path === cwd ? 'dir' : 'file', size: 1, mtimeMs: 1, isLink: false, realPath } }
+    const name = Object.keys(realPaths).find((key) => e.path.endsWith(key))
+    const realPath = e.path === root ? root : name === undefined ? undefined : realPaths[name]
+    return { value: { kind: e.path === root ? 'dir' : 'file', size: 1, mtimeMs: 1, isLink: false, realPath } }
   })
   on('fs.read', async (_$, e) => {
     read.push(e.path)
@@ -637,7 +637,7 @@ test('モデルが呼ぶツールで開けるのは、実体が作業ディレ�
   expect(read).toEqual([])
   const inside = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'docs/inside.md' })
   expect(inside.deny).toBeUndefined()
-  expect(read).toEqual([`${cwd}/docs/inside.md`])
+  expect(read).toEqual([`${root}/docs/inside.md`])
   // 利用者が打つ /preview は作業ディレクトリの外も開ける
   const ran = await $.command.run({
     command: 'preview',
@@ -669,7 +669,7 @@ test('モデルが呼ぶツールの応答から、開けなかった理由と�
     return { value: undefined }
   })
   const cwd = '/real'
-  on('session.cwd', async () => ({ value: cwd }))
+  on('session.root', async () => ({ value: cwd }))
   on('fs.stat', async (_$, e) => {
     if (e.path === cwd) return { value: { kind: 'dir', size: 1, mtimeMs: 1, isLink: false, realPath: cwd } }
     if (e.path.endsWith('missing.md')) throw new Error(`ENOENT: ${e.path}`)
@@ -701,7 +701,7 @@ test('利用者以外から届いた /preview では URL もネットワーク�
     fetched++
     return { value: { ok: true, status: 200, headers: {}, text: '<p>x</p>' } }
   })
-  on('session.cwd', async () => ({ value: '/work' }))
+  on('session.root', async () => ({ value: '/work' }))
   on('fs.stat', async (_$, e) => {
     if (e.path === '/work') return { value: { kind: 'dir', size: 1, mtimeMs: 1, isLink: false, realPath: '/work' } }
     statted.push(e.path)
@@ -795,7 +795,7 @@ test('再読み込みの失敗の通知に制御文字を含むパスが入っ�
 test('モデルのツールで開いたファイルは、再読み込みでも作業ディレクトリの外を読まない', async ($, on) => {
   let target = '/work/a.md'
   const read: string[] = []
-  on('session.cwd', async () => ({ value: '/work' }))
+  on('session.root', async () => ({ value: '/work' }))
   on('fs.stat', async (_$, e) => {
     const realPath = e.path === '/work' ? '/work' : target
     return { value: { kind: e.path === '/work' ? 'dir' : 'file', size: 3, mtimeMs: read.length, isLink: false, realPath } }
