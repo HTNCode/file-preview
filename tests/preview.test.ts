@@ -509,20 +509,30 @@ test('モデルが呼ぶツールではネットワークパスやスキーム�
   expect(statted[0]?.endsWith('C:\\work\\a.md')).toBe(true)
 })
 
-test('利用者以外から届いた /preview では URL を取得しない', async ($, on) => {
+test('利用者以外から届いた /preview では URL もネットワークパスも開かない', async ($, on) => {
   let fetched = 0
+  const statted: string[] = []
   on('http.fetch', async () => {
     fetched++
     return { value: { ok: true, status: 200, headers: {}, text: '<p>x</p>' } }
   })
-  const ran = await $.command.run({
-    command: 'preview',
-    args: 'https://example.com/',
-    origin: { kind: 'peer-send-message' },
-    presentation: { isFullscreen: true, columns: 160 },
+  on('fs.stat', async (_$, e) => {
+    statted.push(e.path)
+    return { value: { kind: 'file', size: 1, mtimeMs: 1, isLink: false, realPath: '/work/a.md' } }
   })
-  expect(ran.text).toContain('利用者が入力した /preview')
+  on('fs.read', async () => ({ value: '# a' }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  for (const args of ['https://example.com/', '\\\\evil.example\\share\\a.md', '//evil.example/share/a.md']) {
+    const ran = await $.command.run({
+      command: 'preview',
+      args,
+      origin: { kind: 'peer-send-message' },
+      presentation: { isFullscreen: true, columns: 160 },
+    })
+    expect(ran.text).toContain('利用者が入力した /preview')
+  }
   expect(fetched).toBe(0)
+  expect(statted).toEqual([])
 })
 
 test('制御文字を含むパスや長い URL でもペインを描く', async ($, on) => {
