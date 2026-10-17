@@ -89,9 +89,10 @@ function columnName(header: string[], column: number): string {
  * 列名を行ごとに繰り返すので元より膨らみうる。budget 文字を超えたらそこで作るのをやめる
  */
 export function tableToList(header: string[], rows: string[][], budget = Number.POSITIVE_INFINITY): string[] {
+  // 見出し行だけの表は、外枠に使った 1 行の表であることが多い。列名として切り詰めず、セルの全文を 1 つずつ出す
   if (rows.length === 0) {
-    const names = header.slice(0, MAX_COLUMNS).map((_, column) => columnName(header, column))
-    return [`・${names.join(' / ')}`]
+    const cells = header.slice(0, MAX_COLUMNS).filter((cell) => cell !== '')
+    return cells.map((cell, column) => `${column === 0 ? '・' : '　'}${cell}`)
   }
   const lines: string[] = []
   let produced = 0

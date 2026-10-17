@@ -460,6 +460,15 @@ describe('ペインの表示用の組み直し', () => {
     expect(toDisplayBlocks(code)).toEqual([{ kind: 'markdown', text: code }])
   })
 
+  test('1 行だけの表はセルの全文を残す', async () => {
+    const long = `本文の最初の段落です。${'長い説明が続きます。'.repeat(5)}`
+    const html = `<table width="700" align="center"><tr><td>ナビ</td><td><p>${long}</p><p>二つ目の段落です。</p></td></tr></table>`
+    const text = toDisplayBlocks(htmlToMarkdown(html)).map((block) => block.text).join('\n')
+    expect(text).toContain(long)
+    expect(text).toContain('二つ目の段落です。')
+    expect(toDisplayBlocks('| a | | b |\n| - | - | - |')).toEqual([{ kind: 'markdown', text: '・a\n　b' }])
+  })
+
   test('リスト項目の続きの段落は全角で字下げし、インデントのコードにしない', async () => {
     expect(toDisplayBlocks('1. 手順\n\n    説明')).toEqual([{ kind: 'markdown', text: '1\\. 手順\n\n　　説明' }])
   })
