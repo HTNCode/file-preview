@@ -316,7 +316,8 @@ export const register: Register = (on) => {
             閉じる
           </Button>
         </Box>
-        {notice !== '' && <Text color="yellow">{notice}</Text>}
+        {/* 通知にはエラー文が入り、エラー文にはパスが入りうる */}
+        {notice !== '' && <Text color="yellow">{oneLine(notice)}</Text>}
         {shotImage}
         {doc.markdown === '' ? (
           <Markdown text="(本文なし)" />

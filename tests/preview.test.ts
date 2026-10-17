@@ -608,6 +608,30 @@ test('制御文字を含むパスや長い URL でもペインを描く', async 
   await remote.unmount()
 })
 
+test('再読み込みの失敗の通知に制御文字を含むパスが入ってもペインを描く', async ($, on) => {
+  let kind: 'file' | 'dir' = 'file'
+  on('fs.stat', async () => ({
+    value: { kind, size: 3, mtimeMs: 10, isLink: false, realPath: '/work/a\u001b[31m.md' },
+  }))
+  on('fs.read', async () => ({ value: '# a' }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  await $.command.run({
+    command: 'preview',
+    args: 'a.md',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+  kind = 'dir'
+  const mount = () =>
+    $.ui.mount({ plugin: 'file-preview', surface: 'terminal', component: 'Pane', requestId: 'file-preview', props: PANE_PROPS })
+  const before = await mount()
+  await before.press({ key: 'reload' })
+  await before.unmount()
+  const after = await mount()
+  expect(await after.find({ type: 'Markdown' })).toBeDefined()
+  await after.unmount()
+})
+
 test('閉じるボタン（q）でペインを閉じる', async ($, on) => {
   on('fs.stat', async () => ({
     value: { kind: 'file', size: 3, mtimeMs: 10, isLink: false, realPath: '/work/readme.md' },
