@@ -264,7 +264,11 @@ export const register: Register = (on) => {
     } catch (error) {
       return { deny: `Could not preview: ${errorText(error)}` }
     }
-  }).catch(() => ({ deny: 'Could not preview: the preview took too long or failed.' }))
+  }).catch(($, _e, next) => {
+    // 理由はデバッグログにだけ残す（パスを含みうるので画面やモデルへの応答には出さない）
+    if (next.error.kind !== 're-entry') $.ui.log(`file-preview: open: ${next.error.kind} ${next.error.message ?? ''}`, { to: 'debug' })
+    return { deny: next.error.kind === 'timeout' ? 'Could not preview: it took too long.' : 'Could not preview: it failed.' }
+  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button, Link, Markdown } = $.ui.resolve(e)
