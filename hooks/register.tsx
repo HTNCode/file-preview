@@ -32,11 +32,14 @@ let isReloading = false
 let openGeneration = 0
 // $.fs.read が受け付ける上限（4 MiB）。読む前に弾いて、分かりやすい理由を返す
 const MAX_FILE_BYTES = 4 * 1024 * 1024
-// URL とネットワークパスを開いてよいコマンドの呼び出し元。利用者自身の入力（端末、Remote Control、SDK のホスト）に限り、
-// 通知・別セッション・チャンネルなどから届いた /preview では取得しない
-const URL_ORIGINS = new Set(['composer', 'bridge', 'sdk'])
-// モデルのツールが失敗したときの文言。理由ごとに変えると、応答からファイルの有無や種類を調べられる
+// 利用者自身の入力にあたるコマンドの呼び出し元（端末、Remote Control、SDK のホスト）。これ以外（通知・別セッション・
+// チャンネルなど）から届いた /preview は、モデルのツールと同じく作業ディレクトリの配下のファイルだけを開く
+const USER_ORIGINS = new Set(['composer', 'bridge', 'sdk'])
+// 許可確認を通らない呼び出し元（モデルのツール、利用者以外の /preview）へ返す、失敗の文言。
+// 理由ごとに変えると、応答からファイルの有無・種類・大きさを調べられる
 const COULD_NOT_PREVIEW = 'Could not preview it.'
+const COULD_NOT_PREVIEW_JA =
+  'プレビューできませんでした。作業ディレクトリの外のファイルや URL は、利用者が入力した /preview で開いてください。'
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -124,6 +127,35 @@ async function takeScreenshot($: EngineInterface, source: string): Promise<Previ
 
 async function setNotice($: EngineInterface, text: string): Promise<void> {
   await update($, noticeAtom, () => text)
+}
+
+/**
+ * 作業ディレクトリの配下にあるファイルだけを開く。許可確認を通らない呼び出し元に使う
+ * （プロンプトインジェクションで鍵や .env をペインに出させない）。シンボリックリンクで外へ出られないよう、
+ * 対象も作業ディレクトリも実体のパスで比べる
+ */
+async function showInsideCwd($: EngineInterface, target: string): Promise<void> {
+  const root = (await $.fs.stat(await $.session.cwd(), { resolve: true })).realPath
+  if (root === undefined) throw new Error('作業ディレクトリの実体を解決できません')
+  await show($, target, root)
+}
+
+/**
+ * 利用者以外から届いた /preview。応答は呼び出し元（別セッションのモデルなど）に返り、許可確認も通らないので、
+ * モデルのツールと同じく開ける範囲を作業ディレクトリの配下に限り、失敗の理由と実体のパスを返さない
+ */
+async function previewForOthers($: EngineInterface, target: string): Promise<{ text: string }> {
+  // ネットワークパスも、ファイルの情報を読むだけで外部へ接続しうるので URL と同じく利用者の入力に限る
+  if (isWebUrl(target) || !isLocalPathSpelling(target)) {
+    return { text: 'URL やネットワーク上のパスのプレビューは、利用者が入力した /preview だけで受け付けます。' }
+  }
+  try {
+    await showInsideCwd($, target)
+    return { text: `プレビュー: ${target}` }
+  } catch (error) {
+    $.ui.log(`file-preview: preview: ${errorText(error)}`, { to: 'debug' })
+    return { text: COULD_NOT_PREVIEW_JA }
+  }
 }
 
 async function show($: EngineInterface, target: string, within?: string): Promise<PreviewDoc> {
@@ -242,10 +274,7 @@ export const register: Register = (on) => {
       await $.ui.open({ id: PANE, title: 'Preview' })
       return { text: 'プレビューを開きました。' }
     }
-    // ネットワークパスも、ファイルの情報を読むだけで外部へ接続しうるので URL と同じく利用者の入力に限る
-    if (!URL_ORIGINS.has(e.origin.kind) && (isWebUrl(target) || !isLocalPathSpelling(target))) {
-      return { text: 'URL やネットワーク上のパスのプレビューは、利用者が入力した /preview だけで受け付けます。' }
-    }
+    if (!USER_ORIGINS.has(e.origin.kind)) return previewForOthers($, target)
     try {
       const doc = await show($, target)
       return { text: `プレビュー: ${redactSource(doc.source)}` }
@@ -271,15 +300,11 @@ export const register: Register = (on) => {
     if (!isLocalPathSpelling(target)) {
       return { deny: 'Only local file paths can be opened by the model. Ask the user to run /preview themselves.' }
     }
-    // このフックはエンジンの許可確認を通らないので、確認なしに開ける範囲を作業ディレクトリの配下に限る
-    // （プロンプトインジェクションで鍵や .env をペインに出させない）。シンボリックリンクで外へ出られないよう、
-    // 対象も作業ディレクトリも実体のパスで比べる。外のファイルは利用者が /preview で開く。
-    // 応答の文言でファイルの有無・種類・大きさやシンボリックリンクの実体を調べられないよう、失敗は 1 つの文言に
-    // まとめ、成功にはモデルが渡した target だけを返す。失敗の理由はデバッグログにだけ残す
+    // 開ける範囲は作業ディレクトリの配下に限る。外のファイルは利用者が /preview で開く。
+    // 失敗は 1 つの文言にまとめ、成功にはモデルが渡した target だけを返す。開けたかどうかは伝わるが、範囲が
+    // 作業ディレクトリの中なので、モデルがほかのツールで分かること以上は分からない。失敗の理由はデバッグログにだけ残す
     try {
-      const root = (await $.fs.stat(await $.session.cwd(), { resolve: true })).realPath
-      if (root === undefined) throw new Error('作業ディレクトリの実体を解決できません')
-      await show($, target, root)
+      await showInsideCwd($, target)
       return { result: `Opened ${target} in the preview pane.` }
     } catch (error) {
       $.ui.log(`file-preview: open: ${errorText(error)}`, { to: 'debug' })

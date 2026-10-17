@@ -681,16 +681,24 @@ test('モデルが呼ぶツールの応答から、ファイルの有無・種�
   expect(String(opened.result)).not.toContain('secret')
 })
 
-test('利用者以外から届いた /preview では URL もネットワークパスも開かない', async ($, on) => {
+test('利用者以外から届いた /preview では URL もネットワークパスも作業ディレクトリの外も開かない', async ($, on) => {
   let fetched = 0
   const statted: string[] = []
+  const logs: string[] = []
   on('http.fetch', async () => {
     fetched++
     return { value: { ok: true, status: 200, headers: {}, text: '<p>x</p>' } }
   })
+  on('session.cwd', async () => ({ value: '/work' }))
   on('fs.stat', async (_$, e) => {
+    if (e.path === '/work') return { value: { kind: 'dir', size: 1, mtimeMs: 1, isLink: false, realPath: '/work' } }
     statted.push(e.path)
-    return { value: { kind: 'file', size: 1, mtimeMs: 1, isLink: false, realPath: '/work/a.md' } }
+    const realPath = e.path.endsWith('out.md') ? '/home/me/.ssh/id_ed25519' : '/work/docs/a.md'
+    return { value: { kind: e.path.endsWith('dir.md') ? 'dir' : 'file', size: 1, mtimeMs: 1, isLink: true, realPath } }
+  })
+  on('ui.log', async (_$, e) => {
+    if (e.to === 'debug') logs.push(e.text)
+    return { value: undefined }
   })
   on('fs.read', async () => ({ value: '# a' }))
   on('ui.open', async () => ({ value: { isPlaced: true } }))
@@ -705,14 +713,23 @@ test('利用者以外から届いた /preview では URL もネットワーク�
   }
   expect(fetched).toBe(0)
   expect(statted).toEqual([])
-  // ローカルのファイルは、利用者以外から届いた /preview でも開ける
-  const local = await $.command.run({
+  const runAsPeer = (args: string) =>
+    $.command.run({ command: 'preview', args, origin: { kind: 'peer-send-message' }, presentation: { isFullscreen: true, columns: 160 } })
+  // 作業ディレクトリの配下のファイルは開ける。応答には呼び出し元が渡したパスだけを返し、実体のパスは出さない
+  expect((await runAsPeer('a.md')).text).toBe('プレビュー: a.md')
+  // 外のファイルと、配下でも開けないものは、同じ文言で断り、理由はデバッグログにだけ残す
+  const outside = (await runAsPeer('out.md')).text
+  expect(outside).not.toContain('out.md')
+  expect((await runAsPeer('dir.md')).text).toBe(outside)
+  expect(logs.some((line) => line.includes('作業ディレクトリの外'))).toBe(true)
+  // 利用者が入力した /preview は、作業ディレクトリの外も開ける
+  const ran = await $.command.run({
     command: 'preview',
-    args: 'a.md',
-    origin: { kind: 'peer-send-message' },
+    args: 'out.md',
+    origin: { kind: 'composer' },
     presentation: { isFullscreen: true, columns: 160 },
   })
-  expect(local.text).toBe('プレビュー: /work/a.md')
+  expect(ran.text).toBe('プレビュー: /home/me/.ssh/id_ed25519')
 })
 
 test('制御文字を含むパスや長い URL でもペインを描く', async ($, on) => {
