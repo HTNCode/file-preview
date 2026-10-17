@@ -116,6 +116,12 @@ describe('HTML から Markdown への変換', () => {
       '[x](<fi\tle://evil/s>)',
       '[x](&#102;ile://evil/s)',
       '[x](FIL&#x45;&colon;//evil/s)',
+      '[x](fi&#10;le://evil/s)',
+      '[x](fi&#xA;le://evil/s)',
+      '[x](fi&NewLine;le://evil/s)',
+      '[x](file&#13;://evil/s)',
+      '[x](&#102ile://evil/s)',
+      '[x](&#x66ile://evil/s)',
     ]
     for (const body of bypasses) {
       expect(docFromUrl('https://e.example/a.md', body).markdown).toContain('file：//evil/s')
@@ -146,6 +152,9 @@ describe('HTML から Markdown への変換', () => {
     expect(html.markdown).toContain('[b](file:///work/b.html)')
     expect(html.markdown).toContain('[x](file：//evil/s)')
     expect(docFromFile('/work/a.yml', 'file: x', 1).markdown).toContain('\nfile: x\n')
+    // 語の途中の file: は file スキームにならないので書き換えない
+    const words = '```yaml\nprofile: default\nMakefile: x\n```'
+    expect(docFromFile('/work/readme.md', words, 1).markdown).toBe(words)
   })
 
   test('file: の無効化は細工した入力でも線形時間で終わる', async () => {
@@ -157,6 +166,8 @@ describe('HTML から Markdown への変換', () => {
     neutralizeFileLinks(`&#${'0'.repeat(1_000_000)}`, false)
     neutralizeFileLinks('f\t'.repeat(500_000), false)
     neutralizeFileLinks('file:///a'.repeat(200_000), true)
+    neutralizeFileLinks(`f${'&#10'.repeat(300_000)}`, false)
+    neutralizeFileLinks(`f${'&#10;&#9'.repeat(150_000)}`, false)
     expect(Date.now() - started).toBeLessThan(3000)
   })
 

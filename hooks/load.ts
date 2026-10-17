@@ -91,8 +91,9 @@ function fence(text: string, path: string): string {
   return codeFence(text, /\.([a-z0-9]+)$/i.exec(path)?.[1] ?? '')
 }
 
+// HTML の構文では数値参照の `;` を省ける（次が数字でなければ参照として読まれる）ので、省いた書き方も拾う
 function charRef(code: number): string {
-  return `&#0*${code};|&#x0*${code.toString(16)};`
+  return `&#0*${code}(?:;|(?![0-9]))|&#x0*${code.toString(16)}(?:;|(?![0-9a-f]))`
 }
 
 function letterPattern(letter: string): string {
@@ -100,11 +101,16 @@ function letterPattern(letter: string): string {
 }
 
 // 描画側が `file:` と読む書き方をまとめて拾う。Markdown のパーサーは文字参照（`&#102;` など）と `\:` を、
-// URL のパーサーは途中のタブを取り除くため、それらを挟んだ書き方も対象にする。
-// リンクの文脈（`](` や `<`）では絞らない。参照定義の改行や `\:` など、文脈の書き方が多く漏れやすいため
-const SCHEME_GAP = `(?:\\t|&tab;|${charRef(9)})*`
+// URL のパーサーは途中のタブ・LF・CR を取り除くため、それらを挟んだ書き方も対象にする
+// （生の LF と CR はリンク先に書けないので、文字参照の形だけ拾う）。
+// リンクの文脈（`](` や `<`）では絞らない。参照定義の改行や `\:` など、文脈の書き方が多く漏れやすいため。
+// 英数字の直後は対象外にする。`profile:` などは file スキームにならず、書き換えると本文やコードが変わってしまう
+const SCHEME_GAP = `(?:\\t|&tab;|&newline;|${charRef(9)}|${charRef(10)}|${charRef(13)})*`
 const FILE_SCHEME = new RegExp(
-  [...'file'].map(letterPattern).join(SCHEME_GAP) + SCHEME_GAP + `(?::|\\\\:|&colon;|${charRef(58)})`,
+  '(?<![A-Za-z0-9])' +
+    [...'file'].map(letterPattern).join(SCHEME_GAP) +
+    SCHEME_GAP +
+    `(?::|\\\\:|&colon;|${charRef(58)})`,
   'gi',
 )
 // ローカルの文書で残すのは、開く側が正規化しても `file:///` の後ろにホスト名が来ないリンクだけ
