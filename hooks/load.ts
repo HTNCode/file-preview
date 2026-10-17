@@ -114,19 +114,25 @@ const FILE_SCHEME = new RegExp(
   'gi',
 )
 // ローカルの文書で残すのは、開く側が正規化しても `file:///` の後ろにホスト名が来ないリンクだけ
-// （`file:////host` などは Windows で UNC として開かれうる）。判定は、リンク先として読まれうる範囲
-// （空白・改行・`<`・`>` の手前まで）の全体で行う。`)` で切らないのは、リンク先に対の丸括弧を書けるため。
+// （`file:////host` などは Windows で UNC として開かれうる）。判定は、リンク先として読まれうる範囲の全体で行う。
+// 裸の書式のリンク先は半角の空白か改行で終わり、`<`・`>`・対の丸括弧・全角の空白や NBSP を含められる。
+// `<…>` の書式は半角の空白を含められ、参照定義では行内の最後の `>` まで伸びうる（`[x]: <file:///a> /../x>` の
+// `>` と空白も含めた全体がリンク先になる）ので、`<` で始まるものは行末までを範囲にする。
+// `<…>` として閉じた後ろが続いて裸の書式として読み直される場合（`[a](<file:///a>/../x>)`）も、この範囲に収まる。
+// どちらの範囲も実際のリンク先と同じか長い。
 // 長さを限るのは、1 つの長い語に file: が並ぶ入力で、照合ごとに語の末尾まで読んで2乗時間になるのを防ぐため
 const MAX_LOCAL_LINK_CHARS = 1024
-const LINK_TAIL = new RegExp(`[^ \\n<>]{0,${MAX_LOCAL_LINK_CHARS + 1}}`, 'y')
+const BARE_TAIL = new RegExp(`[^ \\n]{0,${MAX_LOCAL_LINK_CHARS + 1}}`, 'y')
+const ANGLE_TAIL = new RegExp(`[^\\n]{0,${MAX_LOCAL_LINK_CHARS + 1}}`, 'y')
 const LOCAL_PATH_HEAD = /^\/\/\/[^/\\]/
 // 開く側の正規化で `//host` に変わりうる書き方。`.` と `..` のセグメントは取り除かれ、`\` は `/` になる。
 // 文字参照（`&`）、`\` のエスケープ、%2e / %2f / %5c の符号化、URL のパーサーが取り除くタブは、それらを隠せる
 const HIDES_HOST = /[\\&\t]|%(?:2e|2f|5c)|\/\.\.?(?:\/|$)/i
 
-function isLocalFileLink(markdown: string, from: number): boolean {
-  LINK_TAIL.lastIndex = from
-  const tail = LINK_TAIL.exec(markdown)?.[0] ?? ''
+function isLocalFileLink(markdown: string, schemeStart: number, from: number): boolean {
+  const pattern = markdown[schemeStart - 1] === '<' ? ANGLE_TAIL : BARE_TAIL
+  pattern.lastIndex = from
+  const tail = pattern.exec(markdown)?.[0] ?? ''
   return tail.length <= MAX_LOCAL_LINK_CHARS && LOCAL_PATH_HEAD.test(tail) && !HIDES_HOST.test(tail)
 }
 
@@ -138,7 +144,7 @@ function isLocalFileLink(markdown: string, from: number): boolean {
 export function neutralizeFileLinks(markdown: string, keepLocalPaths: boolean): string {
   return markdown.replace(FILE_SCHEME, (match: string, offset: number) => {
     const isLocalPath =
-      keepLocalPaths && match.toLowerCase() === 'file:' && isLocalFileLink(markdown, offset + match.length)
+      keepLocalPaths && match.toLowerCase() === 'file:' && isLocalFileLink(markdown, offset, offset + match.length)
     return isLocalPath ? match : 'file：'
   })
 }

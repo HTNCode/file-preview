@@ -149,6 +149,27 @@ describe('HTML から Markdown への変換', () => {
     for (const link of dotted) {
       expect(docFromFile('/work/readme.md', `[a](${link})`, 1).markdown).toContain('file：')
     }
+    // リンク先は裸の書式なら `<`・`>`・全角の空白・NBSP を、`<…>` の書式なら空白を含められる。
+    // `<…>` の後ろが続くと裸の書式として読み直される。そこで判定を打ち切ると後ろの `/../` を見落とす
+    const longer = [
+      '[a](file:///a/b>/../..//evil/s)',
+      '[a](file:///a/b</../..//evil/s)',
+      '[a](file:///a/b　/../..//evil/s)',
+      '[a](file:///a/b /../..//evil/s)',
+      '[a](<file:///a/b>/../..//evil/s>)',
+      '[a](<file:///a/b c/../..//evil/s>)',
+      '[x]: <file:///a b/../..//evil/s>',
+      '[x]: <file:///b> /..//evil/s)>',
+      '[x]: file:///a/b>/../..//evil/s',
+    ]
+    for (const link of longer) {
+      expect(docFromFile('/work/readme.md', link, 1).markdown).toContain('file：')
+    }
+    expect(docFromFile('/work/page.html', '<p>[a](file:///a/b&gt;/../..//evil/s)</p>', 1).markdown).toContain('file：')
+    const kept = ['[a](file:///work/b.md) 続き', '[a](file:///work/b.md)<b>', '<file:///work/b.md>', '[a](<file:///work/b.md>)', '[a](file:///work/b.md "t")', '[x]: file:///work/b.md']
+    for (const link of kept) {
+      expect(docFromFile('/work/readme.md', link, 1).markdown).toBe(link)
+    }
     expect(docFromFile('/work/readme.md', '[a](file:///work/名前/b.md)', 1).markdown).toBe('[a](file:///work/名前/b.md)')
     const html = docFromFile('/work/page.html', '<p>[x](file://evil/s)</p><a href="b.html">b</a>', 1)
     expect(html.markdown).toContain('[b](file:///work/b.html)')
