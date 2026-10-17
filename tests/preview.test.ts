@@ -2,7 +2,16 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { toDisplayBlocks } from '../hooks/display'
 import { extractTitle, htmlToMarkdown } from '../hooks/html-to-markdown'
-import { MAX_CHARS, docFromFile, docFromUrl, neutralizeFileLinks, redactSource, sanitize, toFileUrl } from '../hooks/load'
+import {
+  MAX_CHARS,
+  docFromFile,
+  docFromUrl,
+  isInsideRoot,
+  neutralizeFileLinks,
+  redactSource,
+  sanitize,
+  toFileUrl,
+} from '../hooks/load'
 import { hardenHtmlForScreenshot, screenshotArgv, shotKey, windowsBrowsers } from '../hooks/screenshot'
 
 const PAGE = `<!doctype html><html><head><title>Hello &amp; Welcome</title><style>p{color:red}</style></head>
@@ -563,9 +572,11 @@ test('モデルが呼ぶツールでは URL を取得しない', async ($, on) =
 
 test('モデルが呼ぶツールではネットワークパスやスキーム付きの文字列を開かない', async ($, on) => {
   const statted: string[] = []
+  on('session.cwd', async () => ({ value: '/cwd' }))
   on('fs.stat', async (_$, e) => {
+    if (e.path === '/cwd') return { value: { kind: 'dir', size: 1, mtimeMs: 1, isLink: false, realPath: '/cwd' } }
     statted.push(e.path)
-    return { value: { kind: 'file', size: 1, mtimeMs: 1, isLink: false, realPath: 'C:\\work\\a.md' } }
+    return { value: { kind: 'file', size: 1, mtimeMs: 1, isLink: false, realPath: '/cwd/C:\\work\\a.md' } }
   })
   on('fs.read', async () => ({ value: '# a' }))
   on('ui.open', async () => ({ value: { isPlaced: true } }))
@@ -592,12 +603,69 @@ test('モデルが呼ぶツールではネットワークパスやスキーム�
   expect(statted[0]?.endsWith('C:\\work\\a.md')).toBe(true)
 })
 
-test('モデルが呼ぶツールの応答から、ファイルの有無・種類・大きさ・実体のパスが分からない', async ($, on) => {
+test('モデルが呼ぶツールで開けるのは、実体が作業ディレクトリの配下にあるファイルだけ', async ($, on) => {
+  const read: string[] = []
+  const cwd = '/work'
+  on('session.cwd', async () => ({ value: cwd }))
   on('fs.stat', async (_$, e) => {
+    const realPath =
+      e.path === cwd
+        ? cwd
+        : e.path.endsWith('inside.md')
+          ? `${cwd}/docs/inside.md`
+          : e.path.endsWith('link.md')
+            ? '/home/me/.ssh/id_ed25519'
+            : e.path.endsWith('prefix.md')
+              ? `${cwd}shop/prefix.md`
+              : undefined
+    return { value: { kind: e.path === cwd ? 'dir' : 'file', size: 1, mtimeMs: 1, isLink: false, realPath } }
+  })
+  on('fs.read', async (_$, e) => {
+    read.push(e.path)
+    return { value: '# a' }
+  })
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  for (const target of ['link.md', 'prefix.md', '/etc/unresolved.md']) {
+    const called = await $.tool.call({ tool: 'mcp__file-preview__open', target })
+    expect(called.deny).toBe('Could not preview it.')
+  }
+  expect(read).toEqual([])
+  const inside = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'docs/inside.md' })
+  expect(inside.deny).toBeUndefined()
+  expect(read).toEqual([`${cwd}/docs/inside.md`])
+  // 利用者が打つ /preview は作業ディレクトリの外も開ける
+  const ran = await $.command.run({
+    command: 'preview',
+    args: 'link.md',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+  expect(ran.text).toBe('プレビュー: /home/me/.ssh/id_ed25519')
+})
+
+test('作業ディレクトリの配下かを、区切りの位置と Windows の大文字小文字を考えて判定する', async () => {
+  expect(isInsideRoot('/work/a.md', '/work')).toBe(true)
+  expect(isInsideRoot('/work/a.md', '/work/')).toBe(true)
+  expect(isInsideRoot('/workshop/a.md', '/work')).toBe(false)
+  expect(isInsideRoot('/work', '/work')).toBe(false)
+  expect(isInsideRoot('/Work/a.md', '/work')).toBe(false)
+  // POSIX では `\` もファイル名の文字なので、これはルート直下の 1 つの名前
+  expect(isInsideRoot('/work\\..\\x', '/work')).toBe(false)
+  expect(isInsideRoot('C:\\Work\\a.md', 'c:\\work')).toBe(true)
+  expect(isInsideRoot('C:\\Workshop\\a.md', 'c:\\work')).toBe(false)
+  expect(isInsideRoot('C:\\a.md', 'C:\\')).toBe(true)
+  expect(isInsideRoot('\\\\server\\Share\\a.md', '\\\\server\\share')).toBe(true)
+})
+
+test('モデルが呼ぶツールの応答から、ファイルの有無・種類・大きさ・実体のパスが分からない', async ($, on) => {
+  const cwd = '/real'
+  on('session.cwd', async () => ({ value: cwd }))
+  on('fs.stat', async (_$, e) => {
+    if (e.path === cwd) return { value: { kind: 'dir', size: 1, mtimeMs: 1, isLink: false, realPath: cwd } }
     if (e.path.endsWith('missing.md')) throw new Error(`ENOENT: ${e.path}`)
     const kind = e.path.endsWith('dir.md') ? 'dir' : 'file'
     const size = e.path.endsWith('big.md') ? 10 * 1024 * 1024 : 1
-    return { value: { kind, size, mtimeMs: 1, isLink: true, realPath: '/real/secret/target.md' } }
+    return { value: { kind, size, mtimeMs: 1, isLink: true, realPath: `${cwd}/secret/target.md` } }
   })
   on('fs.read', async () => ({ value: '# a' }))
   on('ui.open', async () => ({ value: { isPlaced: true } }))
@@ -610,7 +678,7 @@ test('モデルが呼ぶツールの応答から、ファイルの有無・種�
   expect([...denials][0]).not.toContain('.md')
   const opened = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'link.md' })
   expect(String(opened.result)).toContain('link.md')
-  expect(String(opened.result)).not.toContain('/real/secret')
+  expect(String(opened.result)).not.toContain('secret')
 })
 
 test('利用者以外から届いた /preview では URL もネットワークパスも開かない', async ($, on) => {
@@ -693,6 +761,35 @@ test('再読み込みの失敗の通知に制御文字を含むパスが入っ�
   const after = await mount()
   expect(await after.find({ type: 'Markdown' })).toBeDefined()
   await after.unmount()
+})
+
+test('モデルのツールで開いたファイルは、再読み込みでも作業ディレクトリの外を読まない', async ($, on) => {
+  let target = '/work/a.md'
+  const read: string[] = []
+  on('session.cwd', async () => ({ value: '/work' }))
+  on('fs.stat', async (_$, e) => {
+    const realPath = e.path === '/work' ? '/work' : target
+    return { value: { kind: e.path === '/work' ? 'dir' : 'file', size: 3, mtimeMs: read.length, isLink: false, realPath } }
+  })
+  on('fs.read', async (_$, e) => {
+    read.push(e.path)
+    return { value: '# a' }
+  })
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  const opened = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'a.md' })
+  expect(opened.deny).toBeUndefined()
+  // 開いた後に、外を指すシンボリックリンクへ差し替えられた
+  target = '/home/me/.ssh/id_ed25519'
+  const pane = await $.ui.mount({
+    plugin: 'file-preview',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'file-preview',
+    props: PANE_PROPS,
+  })
+  await pane.press({ key: 'reload' })
+  await pane.unmount()
+  expect(read).toEqual(['/work/a.md'])
 })
 
 test('閉じるボタン（q）でペインを閉じる', async ($, on) => {

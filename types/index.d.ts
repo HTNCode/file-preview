@@ -12,6 +12,8 @@ export type PreviewDoc = {
   /** ローカルファイルの更新検知用。URL では 0 */
   mtimeMs: number
   shot?: PreviewShot
+  /** モデルのツールで開いたときの作業ディレクトリの実体。再読み込みでも、実体がこの配下にあるときだけ読む */
+  within?: string
 }
 
 declare module 'claude-code' {

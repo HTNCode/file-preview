@@ -80,6 +80,18 @@ export function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path
 }
 
+/**
+ * realPath が root の配下か。どちらも `$.fs.stat` の realPath（同じ方法で解決したもの）を渡す。
+ * Windows のパス（ドライブ名か `\\` で始まる root）は大文字小文字と区切りを揃えて比べる。
+ * それ以外は綴りどおりに比べ、別の綴りは外とみなす（POSIX では `\` もファイル名の文字）
+ */
+export function isInsideRoot(realPath: string, root: string): boolean {
+  const isWindowsRoot = /^(?:[A-Za-z]:[\\/]?|\\\\)/.test(root)
+  const normalize = (path: string) => (isWindowsRoot ? path.replace(/\\/g, '/').toLowerCase() : path)
+  const base = normalize(root).replace(/\/+$/, '')
+  return normalize(realPath).startsWith(`${base}/`)
+}
+
 /** Windows の `C:\a\b.html` と POSIX の `/a/b.html` の両方を file URL にする */
 export function toFileUrl(absolutePath: string): string {
   const slashed = absolutePath.replace(/\\/g, '/')

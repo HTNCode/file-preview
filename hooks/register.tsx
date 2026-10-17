@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { PreviewDoc, PreviewShot } from '../types'
 import { toDisplayBlocks } from './display'
 import { MAX_HREF_CHARS } from './html-to-markdown'
-import { docFromFile, docFromUrl, isWebUrl, oneLine, redactSource, toFileUrl } from './load'
+import { docFromFile, docFromUrl, isInsideRoot, isWebUrl, oneLine, redactSource, toFileUrl } from './load'
 import {
   MAC_BROWSERS,
   VIEWPORT,
@@ -56,7 +56,8 @@ function isLocalPathSpelling(target: string): boolean {
   return !isNetworkPath(target) && !/^[\\/]\?\?[\\/]/.test(target) && !/^[a-z][a-z0-9+.-]+:/i.test(target)
 }
 
-async function loadPreview($: EngineInterface, target: string): Promise<PreviewDoc> {
+/** 開ける範囲。within を渡すと、実体がその配下にあるファイルだけを開く（within も stat の realPath で渡す） */
+async function loadPreview($: EngineInterface, target: string, within?: string): Promise<PreviewDoc> {
   if (isWebUrl(target)) {
     // 取得失敗の例外文には URL（クエリの秘密値を含み得る）が入り得るので、そのまま使わずに言い換える
     const response = await $.http.fetch(target).catch(() => {
@@ -66,10 +67,15 @@ async function loadPreview($: EngineInterface, target: string): Promise<PreviewD
     return docFromUrl(target, response.text)
   }
   const stat = await $.fs.stat(target, { resolve: true })
+  // 種類や大きさより先に見て、範囲の外のファイルについては何も確かめない
+  if (within !== undefined && (stat.realPath === undefined || !isInsideRoot(stat.realPath, within))) {
+    throw new Error(`作業ディレクトリの外です: ${target}`)
+  }
   if (stat.kind !== 'file') throw new Error(`ファイルではありません: ${target}`)
   if (stat.size > MAX_FILE_BYTES) throw new Error(`ファイルが大きすぎます（4 MiB まで）: ${target}`)
   const absolute = stat.realPath ?? target
-  return docFromFile(absolute, await $.fs.read(absolute), stat.mtimeMs)
+  const doc = docFromFile(absolute, await $.fs.read(absolute), stat.mtimeMs)
+  return within === undefined ? doc : { ...doc, within }
 }
 
 async function isWindows($: EngineInterface): Promise<boolean> {
@@ -120,9 +126,9 @@ async function setNotice($: EngineInterface, text: string): Promise<void> {
   await update($, noticeAtom, () => text)
 }
 
-async function show($: EngineInterface, target: string): Promise<PreviewDoc> {
+async function show($: EngineInterface, target: string, within?: string): Promise<PreviewDoc> {
   const generation = ++openGeneration
-  const doc = await loadPreview($, target)
+  const doc = await loadPreview($, target, within)
   if (generation !== openGeneration) throw new Error('後から別の対象が開かれたため、この表示は取りやめました')
   await update($, docAtom, () => doc)
   await setNotice($, '')
@@ -140,7 +146,8 @@ async function reload($: EngineInterface): Promise<void> {
   try {
     const current = await read($, docAtom)
     if (current === null) return
-    const next = await loadPreview($, current.source)
+    // 開いた後に対象が外を指すシンボリックリンクへ差し替えられても、開いたときと同じ範囲でしか読まない
+    const next = await loadPreview($, current.source, current.within)
     // 読み込み中に別の対象が開かれていたら、旧対象の結果は捨てる
     if (generation !== openGeneration) return
     await update($, docAtom, (doc) => (doc?.source === current.source ? next : doc))
@@ -214,10 +221,13 @@ export const register: Register = (on) => {
       description:
         'Show a local Markdown, HTML or text file in the preview pane of the user. ' +
         'Use when the user asks to preview or view a document. ' +
-        'URLs and network paths are not accepted: ask the user to run /preview themselves.',
+        'Only files inside the working directory can be opened. ' +
+        'For URLs, network paths and files elsewhere, ask the user to run /preview themselves.',
       inputSchema: {
         type: 'object',
-        properties: { target: { type: 'string', description: 'Absolute or relative local file path' } },
+        properties: {
+          target: { type: 'string', description: 'Absolute or relative path of a file inside the working directory' },
+        },
         required: ['target'],
       },
     })
@@ -261,11 +271,15 @@ export const register: Register = (on) => {
     if (!isLocalPathSpelling(target)) {
       return { deny: 'Only local file paths can be opened by the model. Ask the user to run /preview themselves.' }
     }
-    // このフックはエンジンの許可確認を通らないので、作業ディレクトリの外のファイルも開ける。応答の文言で
-    // ファイルの有無・種類・大きさやシンボリックリンクの実体を調べられないよう、失敗は 1 つの文言にまとめ、
-    // 成功にはモデルが渡した target だけを返す。失敗の理由はデバッグログにだけ残す
+    // このフックはエンジンの許可確認を通らないので、確認なしに開ける範囲を作業ディレクトリの配下に限る
+    // （プロンプトインジェクションで鍵や .env をペインに出させない）。シンボリックリンクで外へ出られないよう、
+    // 対象も作業ディレクトリも実体のパスで比べる。外のファイルは利用者が /preview で開く。
+    // 応答の文言でファイルの有無・種類・大きさやシンボリックリンクの実体を調べられないよう、失敗は 1 つの文言に
+    // まとめ、成功にはモデルが渡した target だけを返す。失敗の理由はデバッグログにだけ残す
     try {
-      await show($, target)
+      const root = (await $.fs.stat(await $.session.cwd(), { resolve: true })).realPath
+      if (root === undefined) throw new Error('作業ディレクトリの実体を解決できません')
+      await show($, target, root)
       return { result: `Opened ${target} in the preview pane.` }
     } catch (error) {
       $.ui.log(`file-preview: open: ${errorText(error)}`, { to: 'debug' })
