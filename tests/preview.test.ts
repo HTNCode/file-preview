@@ -124,6 +124,14 @@ describe('HTML から Markdown への変換', () => {
       '[x](file&#13;://evil/s)',
       '[x](&#102ile://evil/s)',
       '[x](&#x66ile://evil/s)',
+      // `;` を省いた数値参照の直後。数字や a〜f で終わるが、語の途中ではない
+      '[x](&#32file://evil/s)',
+      '[x](&#0032file://evil/s)',
+      '[x](&#10file://evil/s)',
+      '[x](&#32&#102;ile://evil/s)',
+      '[x](&#xa&#102;ile://evil/s)',
+      '[x](&#XD&#x66;ile://evil/s)',
+      '[x](&#x0000a&#102;ile://evil/s)',
     ]
     for (const body of bypasses) {
       expect(docFromUrl('https://e.example/a.md', body).markdown).toContain('file：//evil/s')
@@ -179,7 +187,7 @@ describe('HTML から Markdown への変換', () => {
     expect(html.markdown).toContain('[x](file：//evil/s)')
     expect(docFromFile('/work/a.yml', 'file: x', 1).markdown).toContain('\nfile: x\n')
     // 語の途中の file: は file スキームにならないので書き換えない
-    const words = '```yaml\nprofile: default\nMakefile: x\n```'
+    const words = '```yaml\nprofile: default\nMakefile: x\nx2file: y\ncafe&#102;ile: z\n```'
     expect(docFromFile('/work/readme.md', words, 1).markdown).toBe(words)
   })
 
@@ -194,6 +202,8 @@ describe('HTML から Markdown への変換', () => {
     neutralizeFileLinks('file:///a'.repeat(200_000), true)
     neutralizeFileLinks(`f${'&#10'.repeat(300_000)}`, false)
     neutralizeFileLinks(`f${'&#10;&#9'.repeat(150_000)}`, false)
+    neutralizeFileLinks(`${'9'.repeat(1000)}file:`.repeat(1000), false)
+    neutralizeFileLinks(`&#x${'a'.repeat(1_000_000)}file:`, false)
     expect(Date.now() - started).toBeLessThan(3000)
   })
 

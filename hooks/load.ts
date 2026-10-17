@@ -104,15 +104,27 @@ function letterPattern(letter: string): string {
 // URL のパーサーは途中のタブ・LF・CR を取り除くため、それらを挟んだ書き方も対象にする
 // （生の LF と CR はリンク先に書けないので、文字参照の形だけ拾う）。
 // リンクの文脈（`](` や `<`）では絞らない。参照定義の改行や `\:` など、文脈の書き方が多く漏れやすいため。
-// 英数字の直後は対象外にする。`profile:` などは file スキームにならず、書き換えると本文やコードが変わってしまう
+// 語の途中（英数字の直後）は対象外にする（isInWord）。`profile:` などは file スキームにならず、書き換えると本文やコードが変わってしまう
 const SCHEME_GAP = `(?:\\t|&tab;|&newline;|${charRef(9)}|${charRef(10)}|${charRef(13)})*`
 const FILE_SCHEME = new RegExp(
-  '(?<![A-Za-z0-9])' +
-    [...'file'].map(letterPattern).join(SCHEME_GAP) +
-    SCHEME_GAP +
-    `(?::|\\\\:|&colon;|${charRef(58)})`,
+  [...'file'].map(letterPattern).join(SCHEME_GAP) + SCHEME_GAP + `(?::|\\\\:|&colon;|${charRef(58)})`,
   'gi',
 )
+
+/** `&#32` や `&#xa` のように `;` を省いた数値参照の直後か。参照は数字や a〜f で終わるが、復号すると語の区切りになりうる */
+function followsBareNumericRef(text: string, offset: number): boolean {
+  let decimal = offset
+  while (decimal > 0 && /[0-9]/.test(text[decimal - 1] ?? '')) decimal--
+  if (decimal < offset && text.slice(decimal - 2, decimal) === '&#') return true
+  let hex = offset
+  while (hex > 0 && /[0-9a-f]/i.test(text[hex - 1] ?? '')) hex--
+  return hex < offset && /^&#x$/i.test(text.slice(hex - 3, hex))
+}
+
+// 戻って読むのは一致の直前の数字の並びだけで、一致どうしで重ならないので、全体は線形のまま
+function isInWord(text: string, offset: number): boolean {
+  return /[A-Za-z0-9]/.test(text[offset - 1] ?? '') && !followsBareNumericRef(text, offset)
+}
 // ローカルの文書で残すのは、開く側が正規化しても `file:///` の後ろにホスト名が来ないリンクだけ
 // （`file:////host` などは Windows で UNC として開かれうる）。判定は、リンク先として読まれうる範囲の全体で行う。
 // リンク先は改行を含めないが、それ以外の区切りは書式ごとに違う。裸の書式は `<`・`>`・全角の空白や NBSP を含められ、
@@ -141,6 +153,7 @@ function isLocalFileLink(markdown: string, from: number): boolean {
  */
 export function neutralizeFileLinks(markdown: string, keepLocalPaths: boolean): string {
   return markdown.replace(FILE_SCHEME, (match: string, offset: number) => {
+    if (isInWord(markdown, offset)) return match
     const isLocalPath =
       keepLocalPaths && match.toLowerCase() === 'file:' && isLocalFileLink(markdown, offset + match.length)
     return isLocalPath ? match : 'file：'
