@@ -241,6 +241,8 @@ export const register: Register = (on) => {
     }
   })
 
+  // 拒否の判断を持つフックなので .catch を付ける。無いと、持ち時間の超過や例外でフックが飛ばされ、
+  // エンジンの既定の処理に進んでしまう
   on('tool.call', { tool: 'mcp__file-preview__open' }, async ($, e) => {
     const input = e.input as { target?: unknown }
     if (typeof input.target !== 'string' || input.target.trim() === '') {
@@ -262,7 +264,7 @@ export const register: Register = (on) => {
     } catch (error) {
       return { deny: `Could not preview: ${errorText(error)}` }
     }
-  })
+  }).catch(() => ({ deny: 'Could not preview: the preview took too long or failed.' }))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button, Link, Markdown } = $.ui.resolve(e)
