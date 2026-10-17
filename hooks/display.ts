@@ -157,7 +157,12 @@ export function toDisplayBlocks(markdown: string): DisplayBlock[] {
   let isInList = false
 
   const flush = () => {
-    const text = buffer.join('\n').replace(/^\n+|\n+$/g, '')
+    // 前後の空行は、改行を含まない行の配列のまま落とす。結合後に `/\n+$/` で削ると、空行が長く続く入力で2乗時間になる
+    let start = 0
+    let end = buffer.length
+    while (start < end && buffer[start] === '') start++
+    while (end > start && buffer[end - 1] === '') end--
+    const text = buffer.slice(start, end).join('\n')
     if (text !== '') blocks.push({ kind: 'markdown', text })
     buffer = []
   }

@@ -176,6 +176,13 @@ function normalizeText(text: string): string {
     .trim()
 }
 
+/** `/\n+$/` は改行が長く続く入力で位置ごとに照合をやり直し、2乗時間になるので、末尾から数えて切る */
+function trimTrailingNewlines(text: string): string {
+  let end = text.length
+  while (end > 0 && text[end - 1] === '\n') end--
+  return text.slice(0, end)
+}
+
 export function htmlToMarkdown(html: string, baseUrl?: string): string {
   // pre の中身は空白整理で崩れるので、本文とは別の種類のセグメントとして持つ。
   // 文字列の目印で退避すると、入力に同じ目印を書かれたときに中身が増殖するため使わない
@@ -271,7 +278,7 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
         flushText()
         pre = []
       } else if (isClosing && pre !== undefined) {
-        segments.push({ fence: pre.join('').replace(/^\n/, '').replace(/\n+$/, '') })
+        segments.push({ fence: trimTrailingNewlines(pre.join('').replace(/^\n/, '')) })
         pre = undefined
       }
       continue

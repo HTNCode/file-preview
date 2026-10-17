@@ -131,6 +131,12 @@ describe('HTML から Markdown への変換', () => {
     expect(Date.now() - started).toBeLessThan(3000)
   })
 
+  test('pre の末尾の手前に改行が大量にあっても線形時間で終わる', async () => {
+    const started = Date.now()
+    expect(htmlToMarkdown(`<pre>${'\n'.repeat(200_000)}x</pre>`)).toBe(`\`\`\`\n${'\n'.repeat(199_999)}x\n\`\`\``)
+    expect(Date.now() - started).toBeLessThan(3000)
+  })
+
   test('javascript: のリンクは文字だけ残す', async () => {
     expect(htmlToMarkdown('<a href="javascript:alert(1)">x</a>')).toBe('x')
   })
@@ -378,6 +384,8 @@ describe('ペインの表示用の組み直し', () => {
     toDisplayBlocks(`# ${' '.repeat(50_000)}${'a'.repeat(50_000)}\u2029`)
     toDisplayBlocks(`a|b\n|${' '.repeat(100_000)}-${' '.repeat(100_000)}x`)
     toDisplayBlocks(`${'|'.repeat(50_000)}\n|-|\n${'a|\n'.repeat(25_000)}`)
+    const blankRun = '\n'.repeat(89_000)
+    expect(toDisplayBlocks(`a\n${blankRun}b`)).toEqual([{ kind: 'markdown', text: `a\n${blankRun}b` }])
     expect(Date.now() - started).toBeLessThan(1000)
   })
 
