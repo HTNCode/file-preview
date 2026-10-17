@@ -51,8 +51,8 @@ export function decodeEntities(text: string): string {
   })
 }
 
-// Link が受け付けるアドレスの上限。これを超える URL はリンクにせず文字だけ残す
-const MAX_HREF_CHARS = 2048
+// Link が受け付けるアドレスの上限。これを超える URL はリンクにせず文字だけ残す（超えるとペイン全体の描画が拒否される）
+export const MAX_HREF_CHARS = 2048
 
 /**
  * Markdown 要素が描画するのは http / https / file のリンクだけなので、それ以外は文字として残す。

@@ -3,7 +3,8 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { PreviewDoc, PreviewShot } from '../types'
 import { toDisplayBlocks } from './display'
-import { docFromFile, docFromUrl, isWebUrl, redactSource, toFileUrl } from './load'
+import { MAX_HREF_CHARS } from './html-to-markdown'
+import { docFromFile, docFromUrl, isWebUrl, oneLine, redactSource, toFileUrl } from './load'
 import {
   MAC_BROWSERS,
   VIEWPORT,
@@ -287,7 +288,7 @@ export const register: Register = (on) => {
     return (
       <Box flexDirection="column">
         <Text bold>{doc.title}</Text>
-        <Text dimColor>{doc.source}</Text>
+        <Text dimColor>{oneLine(doc.source)}</Text>
         <Box flexDirection="row" gap={1}>
           <Button key="reload" hotkey="r" onPress={() => runInBackground($, reload($))}>
             再読み込み
@@ -297,7 +298,7 @@ export const register: Register = (on) => {
               スクリーンショット
             </Button>
           )}
-          <Link href={href} label="ブラウザで開く" />
+          {href.length <= MAX_HREF_CHARS && <Link href={href} label="ブラウザで開く" />}
           <Button key="close" hotkey="q" role="dismiss" onPress={() => runInBackground($, $.ui.close({ id: PANE }))}>
             閉じる
           </Button>

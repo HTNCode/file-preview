@@ -34,13 +34,16 @@ export function sanitize(text: string, fileLinks: FileLinkPolicy): string {
 // ペインの見出しに出すタイトルの上限。$.ui.open の title にも渡すので、長すぎると開けなくなる
 const MAX_TITLE_CHARS = 200
 
-/** タイトルは 1 行で描くので、改行やタブを含む制御文字を空白にし、長さを切る。制御文字があるとホストが描画を拒否する */
-export function cleanTitle(title: string): string {
-  return title
+/** 1 行で描く文字列から、改行やタブを含む制御文字を空白にする。制御文字があるとホストがペイン全体の描画を拒否する */
+export function oneLine(text: string): string {
+  return text
     .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')
     .replace(/ {2,}/g, ' ')
     .trim()
-    .slice(0, MAX_TITLE_CHARS)
+}
+
+export function cleanTitle(title: string): string {
+  return oneLine(title).slice(0, MAX_TITLE_CHARS)
 }
 
 function capSource(text: string): string {

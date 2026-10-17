@@ -508,6 +508,30 @@ test('モデルが呼ぶツールではネットワークパスやスキーム�
   expect(statted[0]?.endsWith('C:\\work\\a.md')).toBe(true)
 })
 
+test('制御文字を含むパスや長い URL でもペインを描く', async ($, on) => {
+  on('fs.stat', async () => ({
+    value: { kind: 'file', size: 3, mtimeMs: 10, isLink: false, realPath: '/work/a\u001b[31m.md' },
+  }))
+  on('fs.read', async () => ({ value: '# a' }))
+  on('http.fetch', async () => ({ value: { ok: true, status: 200, headers: {}, text: '<p>x</p>' } }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  const mount = () =>
+    $.ui.mount({ plugin: 'file-preview', surface: 'terminal', component: 'Pane', requestId: 'file-preview', props: PANE_PROPS })
+  const run = (args: string) =>
+    $.command.run({ command: 'preview', args, origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+
+  await run('a.md')
+  const local = await mount()
+  expect(await local.find({ type: 'Markdown' })).toBeDefined()
+  await local.unmount()
+
+  await run(`https://example.com/?q=${'a'.repeat(2100)}`)
+  const remote = await mount()
+  expect(await remote.find({ type: 'Markdown' })).toBeDefined()
+  expect(await remote.find({ type: 'Link' })).toBeUndefined()
+  await remote.unmount()
+})
+
 test('閉じるボタン（q）でペインを閉じる', async ($, on) => {
   on('fs.stat', async () => ({
     value: { kind: 'file', size: 3, mtimeMs: 10, isLink: false, realPath: '/work/readme.md' },
