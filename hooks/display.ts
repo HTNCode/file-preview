@@ -175,7 +175,8 @@ export function toDisplayBlocks(markdown: string): DisplayBlock[] {
   let buffer: string[] = []
   let codeBoxes = 0
   let produced = 0
-  // 直前までリストの中か。字下げ 4 以上の行は、リストの中なら入れ子の項目、外ならインデントのコードとして扱う
+  // 直前までリストの中か。字下げ 4 以上の行は、外ならインデントのコードとして扱う。
+  // リストの中では、入れ子の項目か続きの段落かインデントのコードかを listContentWidth で見分ける
   let isInList = false
   // 直前のリスト項目の本文が始まる桁。項目の中で字下げした行が、続きの段落かインデントのコードかを見分ける
   let listContentWidth = 0

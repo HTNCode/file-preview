@@ -185,7 +185,7 @@ describe('HTML から Markdown への変換', () => {
     docFromUrl('https://e.example/a.md', `&#${'0'.repeat(1_000_000)}`)
     docFromUrl('https://e.example/a.md', 'f\t'.repeat(500_000))
     docFromUrl('https://e.example/a.md', `f${'&tab;'.repeat(300_000)}`)
-    // 切り詰めより前の照合そのものも、長い入力で線形に終わる
+    // 切り詰めを通さない照合そのものも、長い入力で線形に終わる
     neutralizeFileLinks(`&#${'0'.repeat(1_000_000)}`, false)
     neutralizeFileLinks('f\t'.repeat(500_000), false)
     neutralizeFileLinks('file:///a'.repeat(200_000), true)

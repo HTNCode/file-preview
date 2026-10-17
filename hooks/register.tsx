@@ -266,7 +266,8 @@ export const register: Register = (on) => {
       return { deny: `Could not preview: ${errorText(error)}` }
     }
   }).catch(($, _e, next) => {
-    // 理由はデバッグログにだけ残す（パスを含みうるので画面やモデルへの応答には出さない）
+    // ここに届くのは、持ち時間の超過か、上の try の外で起きたエンジン内部の例外。例外文の中身を選べず、
+    // モデルへの応答に出してよいか判断できないので、理由はデバッグログにだけ残す。re-entry のときは `$` の呼び出しが拒否されるので記録しない
     if (next.error.kind !== 're-entry') $.ui.log(`file-preview: open: ${next.error.kind} ${next.error.message ?? ''}`, { to: 'debug' })
     return { deny: next.error.kind === 'timeout' ? 'Could not preview: it took too long.' : 'Could not preview: it failed.' }
   })
