@@ -37,7 +37,17 @@ function errorText(error: unknown): string {
 }
 
 function unquote(args: string): string {
-  return args.trim().replace(/^(["'])(.*)\1$/, '$2')
+  return args.trim().replace(/^(["'])(.*)\1$/, '$2').trim()
+}
+
+/**
+ * モデルのツールで開けるのはローカルのパスだけにする。ネットワークパス（`\\host\share`、`//host/share`、
+ * `\\?\UNC\...`）、NT の `\??\` 形式、スキーム付きの文字列（file: など）は拒否する。
+ * Windows ではファイルの情報を読むだけで名前解決と SMB 接続が走り、DNS の問い合わせや認証情報の送信で値を持ち出せる。
+ * スキームは 2 文字以上に限り、`C:\` のようなドライブ名は通す
+ */
+function isLocalPathSpelling(target: string): boolean {
+  return !isNetworkPath(target) && !/^[\\/]\?\?[\\/]/.test(target) && !/^[a-z][a-z0-9+.-]+:/i.test(target)
 }
 
 async function loadPreview($: EngineInterface, target: string): Promise<PreviewDoc> {
@@ -198,7 +208,7 @@ export const register: Register = (on) => {
       description:
         'Show a local Markdown, HTML or text file in the preview pane of the user. ' +
         'Use when the user asks to preview or view a document. ' +
-        'URLs are not accepted: ask the user to run /preview <url> themselves.',
+        'URLs and network paths are not accepted: ask the user to run /preview themselves.',
       inputSchema: {
         type: 'object',
         properties: { target: { type: 'string', description: 'Absolute or relative local file path' } },
@@ -227,7 +237,7 @@ export const register: Register = (on) => {
   on('tool.call', { tool: 'mcp__file-preview__open' }, async ($, e) => {
     const input = e.input as { target?: unknown }
     if (typeof input.target !== 'string' || input.target.trim() === '') {
-      return { deny: 'target (file path or http(s) URL) is required' }
+      return { deny: 'target (local file path) is required' }
     }
     const target = unquote(input.target)
     // このフックはツールの結果を自分で返すため、エンジンの許可確認を通らない。
@@ -235,6 +245,9 @@ export const register: Register = (on) => {
     // ループバックやメタデータ宛ての SSRF）。URL の取得は利用者が打つ /preview に限る
     if (isWebUrl(target)) {
       return { deny: 'URLs cannot be opened by the model. Ask the user to run /preview <url> themselves.' }
+    }
+    if (!isLocalPathSpelling(target)) {
+      return { deny: 'Only local file paths can be opened by the model. Ask the user to run /preview themselves.' }
     }
     try {
       const doc = await show($, target)

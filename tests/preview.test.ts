@@ -412,6 +412,36 @@ test('モデルが呼ぶツールでは URL を取得しない', async ($, on) =
   expect(fetched).toBe(0)
 })
 
+test('モデルが呼ぶツールではネットワークパスやスキーム付きの文字列を開かない', async ($, on) => {
+  const statted: string[] = []
+  on('fs.stat', async (_$, e) => {
+    statted.push(e.path)
+    return { value: { kind: 'file', size: 1, mtimeMs: 1, isLink: false, realPath: 'C:\\work\\a.md' } }
+  })
+  on('fs.read', async () => ({ value: '# a' }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  const targets = [
+    '\\\\evil\\s\\a.md',
+    '//evil/s/a.md',
+    '"\\\\evil\\s\\a.md"',
+    "' //evil/s/a.md '",
+    '\\\\?\\UNC\\evil\\s\\a.md',
+    '\\??\\UNC\\evil\\s\\a.md',
+    'file://evil/s/a.md',
+    'HTTPS://evil/a.md',
+  ]
+  for (const target of targets) {
+    const called = await $.tool.call({ tool: 'mcp__file-preview__open', input: { target } })
+    expect(called.deny).toContain('/preview')
+  }
+  expect(statted).toEqual([])
+  const local = await $.tool.call({ tool: 'mcp__file-preview__open', input: { target: 'C:\\work\\a.md' } })
+  expect(local.deny).toBeUndefined()
+  // ドライブ名はスキームとみなさずに通す（テストを動かす macOS では作業ディレクトリ基準の相対パスとして解決される）
+  expect(statted.length).toBe(1)
+  expect(statted[0]?.endsWith('C:\\work\\a.md')).toBe(true)
+})
+
 test('閉じるボタン（q）でペインを閉じる', async ($, on) => {
   on('fs.stat', async () => ({
     value: { kind: 'file', size: 3, mtimeMs: 10, isLink: false, realPath: '/work/readme.md' },
