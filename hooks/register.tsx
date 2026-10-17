@@ -32,6 +32,9 @@ let isReloading = false
 let openGeneration = 0
 // $.fs.read が受け付ける上限（4 MiB）。読む前に弾いて、分かりやすい理由を返す
 const MAX_FILE_BYTES = 4 * 1024 * 1024
+// URL を取得してよいコマンドの呼び出し元。利用者自身の入力（端末、Remote Control、SDK のホスト）に限り、
+// 通知・別セッション・チャンネルなどから届いた /preview では取得しない
+const URL_ORIGINS = new Set(['composer', 'bridge', 'sdk'])
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -226,6 +229,9 @@ export const register: Register = (on) => {
       if ((await read($, docAtom)) === null) return { text: USAGE }
       await $.ui.open({ id: PANE, title: 'Preview' })
       return { text: 'プレビューを開きました。' }
+    }
+    if (isWebUrl(target) && !URL_ORIGINS.has(e.origin.kind)) {
+      return { text: 'URL のプレビューは、利用者が入力した /preview だけで受け付けます。' }
     }
     try {
       const doc = await show($, target)

@@ -508,6 +508,22 @@ test('モデルが呼ぶツールではネットワークパスやスキーム�
   expect(statted[0]?.endsWith('C:\\work\\a.md')).toBe(true)
 })
 
+test('利用者以外から届いた /preview では URL を取得しない', async ($, on) => {
+  let fetched = 0
+  on('http.fetch', async () => {
+    fetched++
+    return { value: { ok: true, status: 200, headers: {}, text: '<p>x</p>' } }
+  })
+  const ran = await $.command.run({
+    command: 'preview',
+    args: 'https://example.com/',
+    origin: { kind: 'peer-send-message' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+  expect(ran.text).toContain('利用者が入力した /preview')
+  expect(fetched).toBe(0)
+})
+
 test('制御文字を含むパスや長い URL でもペインを描く', async ($, on) => {
   on('fs.stat', async () => ({
     value: { kind: 'file', size: 3, mtimeMs: 10, isLink: false, realPath: '/work/a\u001b[31m.md' },
