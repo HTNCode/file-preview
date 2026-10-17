@@ -422,6 +422,16 @@ describe('ペインの表示用の組み直し', () => {
     expect(text.endsWith('...（以降は省略）')).toBe(true)
   })
 
+  test('表の直後の --- を見出しにせず、インデントのコードの中の表は書き換えない', async () => {
+    expect(toDisplayBlocks('| a |\n| - |\n| x |\n---')).toEqual([{ kind: 'markdown', text: '・a: x\n\n---' }])
+    const code = '本文\n\n    a | b\n    --|--\n    1 | 2'
+    expect(toDisplayBlocks(code)).toEqual([{ kind: 'markdown', text: code }])
+  })
+
+  test('リスト項目の続きの段落は全角で字下げし、インデントのコードにしない', async () => {
+    expect(toDisplayBlocks('1. 手順\n\n    説明')).toEqual([{ kind: 'markdown', text: '1\\. 手順\n\n　　説明' }])
+  })
+
   test('閉じていないコードブロックは末尾まで続く', async () => {
     expect(toDisplayBlocks('```\na\nb')).toEqual([{ kind: 'code', text: '```\na\nb' }])
   })

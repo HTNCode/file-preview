@@ -193,21 +193,24 @@ export function toDisplayBlocks(markdown: string): DisplayBlock[] {
       i = end
       continue
     }
-    const next = lines[i + 1]
-    if (line.includes('|') && next !== undefined && isTableSeparator(next) && !isTableSeparator(line)) {
-      let end = i + 2
-      while (end < lines.length && (lines[end] ?? '').includes('|') && (lines[end] ?? '').trim() !== '') end++
-      push(...tableToList(splitRow(line), lines.slice(i + 2, end).map(splitRow), OUTPUT_BUDGET - produced))
-      isInList = false
-      i = end - 1
-      continue
-    }
-
+    // インデントのコードは表より先に見る。中にパイプの表があっても書き換えない
     const width = indentWidth(line)
     if (width >= 4 && !isInList) {
       push(line)
       continue
     }
+    const next = lines[i + 1]
+    if (line.includes('|') && next !== undefined && isTableSeparator(next) && !isTableSeparator(line)) {
+      let end = i + 2
+      while (end < lines.length && (lines[end] ?? '').includes('|') && (lines[end] ?? '').trim() !== '') end++
+      push(...tableToList(splitRow(line), lines.slice(i + 2, end).map(splitRow), OUTPUT_BUDGET - produced))
+      // 縦並びの最後の行の次の `---` も setext の見出しの下線になるので、空行で切り離す
+      if (SETEXT_UNDERLINE.test(lines[end] ?? '')) push('')
+      isInList = false
+      i = end - 1
+      continue
+    }
+
     const item = transformListItem(line)
     if (item !== undefined) {
       push(item)
@@ -217,6 +220,13 @@ export function toDisplayBlocks(markdown: string): DisplayBlock[] {
       continue
     }
     if (line.trim() !== '' && width === 0) isInList = false
+    if (isInList && width > 0) {
+      // リスト項目の続きの段落。記号を・に変えてリストではなくなったので、半角の字下げのままだと
+      // インデントのコードとして描かれる。項目と同じく全角の字下げにする
+      const body = line.trimStart()
+      push(`${indent(line.slice(0, line.length - body.length))}${body}`)
+      continue
+    }
     push(transformHeading(line) ?? line)
   }
   if (produced > OUTPUT_BUDGET && buffer.at(-1) !== TRUNCATED_NOTE) push(TRUNCATED_NOTE)
