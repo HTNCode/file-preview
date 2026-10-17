@@ -100,6 +100,8 @@ describe('HTML から Markdown への変換', () => {
     expect(htmlToMarkdown('<a href="//evil.example/share/x.html">b</a>', 'file:///work/page.html')).toBe('b')
     expect(htmlToMarkdown('<a href="file:////evil.example/s/x">d</a>', 'file:///work/page.html')).toBe('d')
     expect(htmlToMarkdown('<a href="file://localhost//evil.example/s/x">e</a>', 'file:///work/page.html')).toBe('e')
+    expect(htmlToMarkdown('<a href="file:///%2Fevil.example/s/x">f</a>', 'file:///work/page.html')).toBe('f')
+    expect(htmlToMarkdown('<a href="/%2fevil.example/s/x">g</a>', 'file:///work/page.html')).toBe('g')
     expect(htmlToMarkdown('<a href="other.html">c</a>', 'file:///work/page.html')).toBe('[c](file:///work/other.html)')
     const doc = docFromUrl('https://example.com/readme.md', '[x](file://evil.example/s) <file://evil.example/t>')
     expect(doc.markdown).toBe('[x](file：//evil.example/s) <file：//evil.example/t>')
