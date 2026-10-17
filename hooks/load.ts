@@ -86,13 +86,26 @@ export function baseName(path: string): string {
 }
 
 /**
+ * NTFS の大文字小文字の揃え方に近づける。NTFS は 1 文字ずつ大文字の表で引くので、文字ごとに大文字にし、
+ * 1 文字に収まらないもの（ß → SS など）は元のままにする。小文字へ揃えると、ケルビン記号（U+212A）と k のように
+ * NTFS では別の名前になる文字を同じとみなしてしまう
+ */
+function foldCaseLikeNtfs(path: string): string {
+  return Array.from(path, (char) => {
+    const upper = char.toUpperCase()
+    return Array.from(upper).length === 1 ? upper : char
+  }).join('')
+}
+
+/**
  * realPath が root の配下か。どちらも `$.fs.stat` の realPath（同じ方法で解決したもの）を渡す。
+ * 文字列で比べるので、`.` や `..` を含まない、解決済みのパスであることが前提。
  * Windows のパス（ドライブ名か `\\` で始まる root）は大文字小文字と区切りを揃えて比べる。
  * それ以外は綴りどおりに比べ、別の綴りは外とみなす（POSIX では `\` もファイル名の文字）
  */
 export function isInsideRoot(realPath: string, root: string): boolean {
   const isWindowsRoot = /^(?:[A-Za-z]:[\\/]?|\\\\)/.test(root)
-  const normalize = (path: string) => (isWindowsRoot ? path.replace(/\\/g, '/').toLowerCase() : path)
+  const normalize = (path: string) => (isWindowsRoot ? foldCaseLikeNtfs(path.replace(/\\/g, '/')) : path)
   const base = normalize(root).replace(/\/+$/, '')
   return normalize(realPath).startsWith(`${base}/`)
 }

@@ -662,6 +662,9 @@ test('作業ディレクトリの配下かを、区切りの位置と Windows �
   expect(isInsideRoot('C:\\Work\\a.md', 'c:\\work')).toBe(true)
   expect(isInsideRoot('C:\\Workshop\\a.md', 'c:\\work')).toBe(false)
   expect(isInsideRoot('C:\\a.md', 'C:\\')).toBe(true)
+  // ケルビン記号（U+212A）は NTFS では k と別の名前
+  expect(isInsideRoot('C:\\k\\secret.md', 'C:\\\u212a')).toBe(false)
+  expect(isInsideRoot('C:\\wor\u212a\\secret.md', 'C:\\work')).toBe(false)
   expect(isInsideRoot('\\\\server\\Share\\a.md', '\\\\server\\share')).toBe(true)
 })
 
