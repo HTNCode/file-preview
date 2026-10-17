@@ -25,10 +25,10 @@ export type FileLinkPolicy = 'keep' | 'local' | 'none'
  */
 export function sanitize(text: string, fileLinks: FileLinkPolicy): string {
   const stripped = text.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '')
-  const cleaned = fileLinks === 'keep' ? stripped : neutralizeFileLinks(stripped, fileLinks === 'local')
-  if (cleaned.length <= MAX_CHARS) return cleaned
-  const note = `\n\n...（${cleaned.length} 文字中、先頭のみ表示）`
-  return `${cleaned.slice(0, MAX_CHARS - note.length)}${note}`
+  // 無効化は切り詰めた後に行い、描かれない部分まで照合しない。置き換えは元より長くならないので上限は超えない
+  const note = stripped.length <= MAX_CHARS ? '' : `\n\n...（${stripped.length} 文字中、先頭のみ表示）`
+  const shown = note === '' ? stripped : stripped.slice(0, MAX_CHARS - note.length)
+  return `${fileLinks === 'keep' ? shown : neutralizeFileLinks(shown, fileLinks === 'local')}${note}`
 }
 
 // ペインの見出しに出すタイトルの上限。$.ui.open の title にも渡すので、長すぎると開けなくなる
@@ -107,9 +107,22 @@ const FILE_SCHEME = new RegExp(
   [...'file'].map(letterPattern).join(SCHEME_GAP) + SCHEME_GAP + `(?::|\\\\:|&colon;|${charRef(58)})`,
   'gi',
 )
-// ローカルの文書で残すのは `file:///Users/...` や `file:///C:/...` のようなローカルのパスだけ。
-// `file:////host` や `file:///%5C%5Chost` は Windows で UNC として開かれうるので、先頭の文字を限る
-const LOCAL_PATH_AFTER_SCHEME = /^\/\/\/[\w.~-]/
+// ローカルの文書で残すのは、開く側が正規化しても `file:///` の後ろにホスト名が来ないリンクだけ
+// （`file:////host` などは Windows で UNC として開かれうる）。判定は、リンク先として読まれうる範囲
+// （空白・改行・`<`・`>` の手前まで）の全体で行う。`)` で切らないのは、リンク先に対の丸括弧を書けるため。
+// 長さを限るのは、1 つの長い語に file: が並ぶ入力で、照合ごとに語の末尾まで読んで2乗時間になるのを防ぐため
+const MAX_LOCAL_LINK_CHARS = 1024
+const LINK_TAIL = new RegExp(`[^ \\n<>]{0,${MAX_LOCAL_LINK_CHARS + 1}}`, 'y')
+const LOCAL_PATH_HEAD = /^\/\/\/[^/\\]/
+// 開く側の正規化で `//host` に変わりうる書き方。`.` と `..` のセグメントは取り除かれ、`\` は `/` になる。
+// 文字参照（`&`）、`\` のエスケープ、%2e / %2f / %5c の符号化、URL のパーサーが取り除くタブは、それらを隠せる
+const HIDES_HOST = /[\\&\t]|%(?:2e|2f|5c)|\/\.\.?(?:\/|$)/i
+
+function isLocalFileLink(markdown: string, from: number): boolean {
+  LINK_TAIL.lastIndex = from
+  const tail = LINK_TAIL.exec(markdown)?.[0] ?? ''
+  return tail.length <= MAX_LOCAL_LINK_CHARS && LOCAL_PATH_HEAD.test(tail) && !HIDES_HOST.test(tail)
+}
 
 /**
  * 本文に書かれた file: のリンクを、`file：`（全角のコロン）に変えて文字として残す。
@@ -118,8 +131,8 @@ const LOCAL_PATH_AFTER_SCHEME = /^\/\/\/[\w.~-]/
  */
 export function neutralizeFileLinks(markdown: string, keepLocalPaths: boolean): string {
   return markdown.replace(FILE_SCHEME, (match: string, offset: number) => {
-    const after = markdown.slice(offset + match.length, offset + match.length + 4)
-    const isLocalPath = keepLocalPaths && match.toLowerCase() === 'file:' && LOCAL_PATH_AFTER_SCHEME.test(after)
+    const isLocalPath =
+      keepLocalPaths && match.toLowerCase() === 'file:' && isLocalFileLink(markdown, offset + match.length)
     return isLocalPath ? match : 'file：'
   })
 }

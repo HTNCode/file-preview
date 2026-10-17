@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { toDisplayBlocks } from '../hooks/display'
 import { extractTitle, htmlToMarkdown } from '../hooks/html-to-markdown'
-import { MAX_CHARS, docFromFile, docFromUrl, redactSource, sanitize, toFileUrl } from '../hooks/load'
+import { MAX_CHARS, docFromFile, docFromUrl, neutralizeFileLinks, redactSource, sanitize, toFileUrl } from '../hooks/load'
 import { hardenHtmlForScreenshot, screenshotArgv, shotKey, windowsBrowsers } from '../hooks/screenshot'
 
 const PAGE = `<!doctype html><html><head><title>Hello &amp; Welcome</title><style>p{color:red}</style></head>
@@ -127,6 +127,21 @@ describe('HTML から Markdown への変換', () => {
   test('ローカルの文書ではローカルのパスの file: だけ残す', async () => {
     const md = docFromFile('/work/readme.md', '[a](file:///work/b.md) [x](file://evil/s) [y](file:////evil/s) [z](file:///%5C%5Cevil/s)', 1)
     expect(md.markdown).toBe('[a](file:///work/b.md) [x](file：//evil/s) [y](file：////evil/s) [z](file：///%5C%5Cevil/s)')
+    // 開く側の正規化で `file:////evil/s` に変わる書き方も残さない
+    const dotted = [
+      'file:///.//evil/s',
+      'file:///a/..//evil/s',
+      'file:///a/%2e%2e//evil/s',
+      'file:///a/%2E%2E/%2Fevil/s',
+      'file:///a/../\\evil/s',
+      'file:///a/&#46;&#46;//evil/s',
+      'file:///(b)/..//evil/s',
+      '<file:///a/..\t//evil/s>',
+    ]
+    for (const link of dotted) {
+      expect(docFromFile('/work/readme.md', `[a](${link})`, 1).markdown).toContain('file：')
+    }
+    expect(docFromFile('/work/readme.md', '[a](file:///work/名前/b.md)', 1).markdown).toBe('[a](file:///work/名前/b.md)')
     const html = docFromFile('/work/page.html', '<p>[x](file://evil/s)</p><a href="b.html">b</a>', 1)
     expect(html.markdown).toContain('[b](file:///work/b.html)')
     expect(html.markdown).toContain('[x](file：//evil/s)')
@@ -138,6 +153,10 @@ describe('HTML から Markdown への変換', () => {
     docFromUrl('https://e.example/a.md', `&#${'0'.repeat(1_000_000)}`)
     docFromUrl('https://e.example/a.md', 'f\t'.repeat(500_000))
     docFromUrl('https://e.example/a.md', `f${'&tab;'.repeat(300_000)}`)
+    // 切り詰めより前の照合そのものも、長い入力で線形に終わる
+    neutralizeFileLinks(`&#${'0'.repeat(1_000_000)}`, false)
+    neutralizeFileLinks('f\t'.repeat(500_000), false)
+    neutralizeFileLinks('file:///a'.repeat(200_000), true)
     expect(Date.now() - started).toBeLessThan(3000)
   })
 
