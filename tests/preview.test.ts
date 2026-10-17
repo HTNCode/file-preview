@@ -866,6 +866,37 @@ test('モデルのツールで開いた HTML は、撮影でも作業ディレ�
   expect(launched).toBe(0)
 })
 
+test('撮影の後、撮影用の HTML のコピーを空にする', async ($, on) => {
+  let launched = 0
+  const writes: Array<{ path: string; text: string }> = []
+  on('fs.stat', async (_$, e) => {
+    if (e.path.endsWith('.png')) {
+      if (launched === 0) throw new Error('ENOENT')
+      return { value: { kind: 'file', size: 1, mtimeMs: 2, isLink: false } }
+    }
+    return { value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath: '/work/a.html' } }
+  })
+  on('fs.read', async () => ({ value: '<p>a</p>' }))
+  on('fs.write', async (_$, e) => {
+    writes.push({ path: e.path, text: e.text })
+    return { value: undefined }
+  })
+  on('env.get', async (_$, e) => ({ value: e.name === 'FILE_PREVIEW_BROWSER' ? '/bin/browser' : '/tmp' }))
+  on('process.run', async () => {
+    launched++
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  await $.command.run({ command: 'preview', args: 'a.html', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const pane = await $.ui.mount({ plugin: 'file-preview', surface: 'terminal', component: 'Pane', requestId: 'file-preview', props: PANE_PROPS })
+  await pane.press({ key: 'shot' })
+  await pane.unmount()
+  expect(launched).toBe(1)
+  const copies = writes.filter((write) => write.path.endsWith('.html'))
+  expect(copies.length).toBe(2)
+  expect(copies.at(-1)?.text).toBe('')
+})
+
 test('閉じるボタン（q）でペインを閉じる', async ($, on) => {
   on('fs.stat', async () => ({
     value: { kind: 'file', size: 3, mtimeMs: 10, isLink: false, realPath: '/work/readme.md' },

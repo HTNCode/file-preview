@@ -141,7 +141,10 @@ async function takeScreenshot($: EngineInterface, source: string, within?: strin
   // 前回の撮影画像が残っていても今回の成功と取り違えないよう、撮影前後の更新日時を比べる
   const before = await $.fs.stat(file).catch(() => undefined)
   // ブラウザの stderr にはローカルパスや URL が混ざるため、利用者への表示には使わない
-  const { exitCode } = await $.process.run(argv, { timeoutMs: 60_000 })
+  const { exitCode } = await $.process.run(argv, { timeoutMs: 60_000 }).finally(() =>
+    // 文書の写しを一時フォルダに残さない。$.fs に削除が無いので空にする
+    $.fs.write(hardenedCopy, '').catch(() => undefined),
+  )
   const written = await $.fs.stat(file).catch(() => undefined)
   const isFresh = written !== undefined && (before === undefined || written.mtimeMs > before.mtimeMs)
   if (exitCode !== 0 || !isFresh) {
