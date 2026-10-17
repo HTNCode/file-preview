@@ -12,9 +12,20 @@ export const MAX_SOURCE_CHARS = 2_000_000
 const MARKDOWN_EXT = /\.(md|markdown|mdx)$/i
 const HTML_EXT = /\.(html?|xhtml)$/i
 
-/** Markdown 要素はタブと改行以外の制御文字（C0、DEL、C1）を含むテキストを拒否するため、読み込んだ内容から落とす */
-export function sanitize(text: string): string {
-  const cleaned = text.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '')
+/**
+ * 本文中の file: のリンクの扱い。keep はそのまま（コードブロックとして描くテキスト）、
+ * local はローカルのパスだけ残す（ローカルの文書）、none はすべて無効化する（Web から取得した文書）
+ */
+export type FileLinkPolicy = 'keep' | 'local' | 'none'
+
+/**
+ * Markdown 要素はタブと改行以外の制御文字（C0、DEL、C1）を含むテキストを拒否するため、読み込んだ内容から落とす。
+ * file: のリンクの無効化は制御文字を落とした後に行う。先に行うと、`fi\u0001le:` のように制御文字を挟んだ書き方が
+ * 無効化をすり抜け、制御文字を落とした時点で生きたリンクに戻る
+ */
+export function sanitize(text: string, fileLinks: FileLinkPolicy): string {
+  const stripped = text.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '')
+  const cleaned = fileLinks === 'keep' ? stripped : neutralizeFileLinks(stripped, fileLinks === 'local')
   if (cleaned.length <= MAX_CHARS) return cleaned
   const note = `\n\n...（${cleaned.length} 文字中、先頭のみ表示）`
   return `${cleaned.slice(0, MAX_CHARS - note.length)}${note}`
@@ -77,13 +88,37 @@ function fence(text: string, path: string): string {
   return codeFence(text, /\.([a-z0-9]+)$/i.exec(path)?.[1] ?? '')
 }
 
+function charRef(code: number): string {
+  return `&#0*${code};|&#x0*${code.toString(16)};`
+}
+
+function letterPattern(letter: string): string {
+  return `(?:${letter}|${charRef(letter.charCodeAt(0))}|${charRef(letter.toUpperCase().charCodeAt(0))})`
+}
+
+// 描画側が `file:` と読む書き方をまとめて拾う。Markdown のパーサーは文字参照（`&#102;` など）と `\:` を、
+// URL のパーサーは途中のタブを取り除くため、それらを挟んだ書き方も対象にする。
+// リンクの文脈（`](` や `<`）では絞らない。参照定義の改行や `\:` など、文脈の書き方が多く漏れやすいため
+const SCHEME_GAP = `(?:\\t|&tab;|${charRef(9)})*`
+const FILE_SCHEME = new RegExp(
+  [...'file'].map(letterPattern).join(SCHEME_GAP) + SCHEME_GAP + `(?::|\\\\:|&colon;|${charRef(58)})`,
+  'gi',
+)
+// ローカルの文書で残すのは `file:///Users/...` や `file:///C:/...` のようなローカルのパスだけ。
+// `file:////host` や `file:///%5C%5Chost` は Windows で UNC として開かれうるので、先頭の文字を限る
+const LOCAL_PATH_AFTER_SCHEME = /^\/\/\/[\w.~-]/
+
 /**
- * Web から取得した文書の本文に書かれた file: のリンク（`[x](file://...)`、`<file://...>`、参照定義）を、
- * 描画されない形に変えて文字として残す。本文の Markdown 記号はエスケープしないため、
- * HTML の本文や .md に書かれただけで、ホスト付き file:（SMB 接続）のリンクになってしまう
+ * 本文に書かれた file: のリンクを、`file：`（全角のコロン）に変えて文字として残す。
+ * 本文の Markdown 記号はエスケープしないため、HTML の本文や .md に書かれただけで、
+ * ホスト付き file:（Windows では SMB 接続になり、認証情報が外部ホストへ送られうる）のリンクになってしまう
  */
-export function neutralizeFileLinks(markdown: string): string {
-  return markdown.replace(/(\]\(\s*<?|<|\]:[ \t]*<?)file:/gi, '$1blocked-file:')
+export function neutralizeFileLinks(markdown: string, keepLocalPaths: boolean): string {
+  return markdown.replace(FILE_SCHEME, (match: string, offset: number) => {
+    const after = markdown.slice(offset + match.length, offset + match.length + 4)
+    const isLocalPath = keepLocalPaths && match.toLowerCase() === 'file:' && LOCAL_PATH_AFTER_SCHEME.test(after)
+    return isLocalPath ? match : 'file：'
+  })
 }
 
 export function docFromUrl(url: string, fetched: string): PreviewDoc {
@@ -94,7 +129,7 @@ export function docFromUrl(url: string, fetched: string): PreviewDoc {
     source: new URL(url).href,
     kind: 'url',
     title: cleanTitle((isMarkdown ? undefined : extractTitle(body)) ?? redactSource(url)),
-    markdown: sanitize(neutralizeFileLinks(isMarkdown ? body : htmlToMarkdown(body, url))),
+    markdown: sanitize(isMarkdown ? body : htmlToMarkdown(body, url), 'none'),
     mtimeMs: 0,
   }
 }
@@ -108,7 +143,7 @@ export function docFromFile(absolutePath: string, read: string, mtimeMs: number)
     source: absolutePath,
     kind,
     title: cleanTitle((kind === 'html' ? extractTitle(raw) : undefined) ?? baseName(absolutePath)),
-    markdown: sanitize(converted),
+    markdown: sanitize(converted, kind === 'text' ? 'keep' : 'local'),
     mtimeMs,
   }
 }

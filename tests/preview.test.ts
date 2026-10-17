@@ -34,7 +34,7 @@ describe('HTML から Markdown への変換', () => {
 
   test('数値参照の 0x80〜0x9F は Windows-1252 の文字として読み、制御文字を残さない', async () => {
     expect(htmlToMarkdown('<p>It&#146;s &#150; &#129; &#0; &#xD800;</p>')).toBe('It’s – � � �')
-    expect(sanitize('a\u0085b\u009fc')).toBe('abc')
+    expect(sanitize('a\u0085b\u009fc', 'keep')).toBe('abc')
   })
 
   test('doctype は本文に出さない', async () => {
@@ -88,9 +88,47 @@ describe('HTML から Markdown への変換', () => {
   test('Web の文書から file: のリンクを作らず、ホスト付きの file: はローカルからも作らない', async () => {
     expect(htmlToMarkdown('<a href="file:///etc/hosts">a</a>', 'https://example.com/')).toBe('a')
     expect(htmlToMarkdown('<a href="//evil.example/share/x.html">b</a>', 'file:///work/page.html')).toBe('b')
+    expect(htmlToMarkdown('<a href="file:////evil.example/s/x">d</a>', 'file:///work/page.html')).toBe('d')
+    expect(htmlToMarkdown('<a href="file://localhost//evil.example/s/x">e</a>', 'file:///work/page.html')).toBe('e')
     expect(htmlToMarkdown('<a href="other.html">c</a>', 'file:///work/page.html')).toBe('[c](file:///work/other.html)')
     const doc = docFromUrl('https://example.com/readme.md', '[x](file://evil.example/s) <file://evil.example/t>')
-    expect(doc.markdown).toBe('[x](blocked-file://evil.example/s) <blocked-file://evil.example/t>')
+    expect(doc.markdown).toBe('[x](file：//evil.example/s) <file：//evil.example/t>')
+  })
+
+  test('制御文字・文字参照・エスケープ・タブを挟んだ file: も無効化する', async () => {
+    const bypasses = [
+      '[x](fi\u0001le://evil/s)',
+      '[x](\u0007file://evil/s)',
+      '[x](fi\u0085le://evil/s)',
+      '[x](file\\://evil/s)',
+      '[x]:\nfile://evil/s',
+      '[x](< file://evil/s>)',
+      '[x](<fi\tle://evil/s>)',
+      '[x](&#102;ile://evil/s)',
+      '[x](FIL&#x45;&colon;//evil/s)',
+    ]
+    for (const body of bypasses) {
+      expect(docFromUrl('https://e.example/a.md', body).markdown).toContain('file：//evil/s')
+    }
+    const html = docFromUrl('https://e.example/a.html', '<p>[x](fi&#1;le://evil/s) [y](&amp;#102;ile://evil/s)</p>')
+    expect(html.markdown).toBe('[x](file：//evil/s) [y](file：//evil/s)')
+  })
+
+  test('ローカルの文書ではローカルのパスの file: だけ残す', async () => {
+    const md = docFromFile('/work/readme.md', '[a](file:///work/b.md) [x](file://evil/s) [y](file:////evil/s) [z](file:///%5C%5Cevil/s)', 1)
+    expect(md.markdown).toBe('[a](file:///work/b.md) [x](file：//evil/s) [y](file：////evil/s) [z](file：///%5C%5Cevil/s)')
+    const html = docFromFile('/work/page.html', '<p>[x](file://evil/s)</p><a href="b.html">b</a>', 1)
+    expect(html.markdown).toContain('[b](file:///work/b.html)')
+    expect(html.markdown).toContain('[x](file：//evil/s)')
+    expect(docFromFile('/work/a.yml', 'file: x', 1).markdown).toContain('\nfile: x\n')
+  })
+
+  test('file: の無効化は細工した入力でも線形時間で終わる', async () => {
+    const started = Date.now()
+    docFromUrl('https://e.example/a.md', `&#${'0'.repeat(1_000_000)}`)
+    docFromUrl('https://e.example/a.md', 'f\t'.repeat(500_000))
+    docFromUrl('https://e.example/a.md', `f${'&tab;'.repeat(300_000)}`)
+    expect(Date.now() - started).toBeLessThan(3000)
   })
 
   test('javascript: のリンクは文字だけ残す', async () => {
@@ -282,12 +320,12 @@ describe('パスと本文の扱い', () => {
   })
 
   test('制御文字を落とし、CRLF を LF にする', async () => {
-    expect(sanitize('a\r\nb\u0007c')).toBe('a\nbc')
+    expect(sanitize('a\r\nb\u0007c', 'keep')).toBe('a\nbc')
   })
 
   test('省略メッセージを含めても上限文字数を超えない', async () => {
-    expect(sanitize('x'.repeat(MAX_CHARS)).length).toBe(MAX_CHARS)
-    const cut = sanitize('x'.repeat(MAX_CHARS + 1))
+    expect(sanitize('x'.repeat(MAX_CHARS), 'keep').length).toBe(MAX_CHARS)
+    const cut = sanitize('x'.repeat(MAX_CHARS + 1), 'keep')
     expect(cut.length).toBe(MAX_CHARS)
     expect(cut.endsWith('先頭のみ表示）')).toBe(true)
   })
