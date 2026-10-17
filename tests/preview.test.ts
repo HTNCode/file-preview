@@ -133,8 +133,8 @@ describe('HTML から Markdown への変換', () => {
   })
 
   test('ローカルの文書ではローカルのパスの file: だけ残す', async () => {
-    const md = docFromFile('/work/readme.md', '[a](file:///work/b.md) [x](file://evil/s) [y](file:////evil/s) [z](file:///%5C%5Cevil/s)', 1)
-    expect(md.markdown).toBe('[a](file:///work/b.md) [x](file：//evil/s) [y](file：////evil/s) [z](file：///%5C%5Cevil/s)')
+    const md = docFromFile('/work/readme.md', '[a](file:///work/b.md)\n[x](file://evil/s) [y](file:////evil/s) [z](file:///%5C%5Cevil/s)', 1)
+    expect(md.markdown).toBe('[a](file:///work/b.md)\n[x](file：//evil/s) [y](file：////evil/s) [z](file：///%5C%5Cevil/s)')
     // 開く側の正規化で `file:////evil/s` に変わる書き方も残さない
     const dotted = [
       'file:///.//evil/s',
@@ -158,6 +158,9 @@ describe('HTML から Markdown への変換', () => {
       '[a](file:///a/b /../..//evil/s)',
       '[a](<file:///a/b>/../..//evil/s>)',
       '[a](<file:///a/b c/../..//evil/s>)',
+      '[a](< file:///a b/..//evil/s>)',
+      '[a](<\tfile:///a b/..//evil/s>)',
+      '[x]: < file:///a b/..//evil/s>',
       '[x]: <file:///a b/../..//evil/s>',
       '[x]: <file:///b> /..//evil/s)>',
       '[x]: file:///a/b>/../..//evil/s',
