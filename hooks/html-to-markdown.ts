@@ -137,8 +137,11 @@ export function findTagEnd(html: string, lt: number): number {
   return -1
 }
 
-// 表の中にこれが `</table>` より先に現れたら、レイアウト用の表とみなす
-const LAYOUT_SIGNAL = /<\/table\b|<(?:h[1-6]|p|ul|ol|li|pre|div|table|blockquote|section|article|dl|form)\b/gi
+// 表の中にこれが `</table>` より先に現れたら、レイアウト用の表とみなす。
+// p と div は手がかりにしない。Sphinx や Word などの書き出しはデータの表でも全セルを p で包むため。
+// タグ名の終わりはトークナイザの文法（`[a-zA-Z][a-zA-Z0-9-]*`）に合わせる。`\b` は `_` を単語の文字とみなすため、
+// トークナイザが表として読む `<table_>` の `</table_>` を、表の終わりとして拾えない
+const LAYOUT_SIGNAL = /<\/table(?![a-z0-9-])|<(?:h[1-6]|ul|ol|pre|table|blockquote|section|article|dl|form)(?![a-z0-9-])/gi
 
 /** `<ol start>` と `<li value>` の番号。整数でなければ undefined */
 function listNumber(value: string | undefined): number | undefined {
@@ -194,8 +197,8 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
   let i = 0
   // ul / ol の入れ子。番号付きは次に振る番号を持つ
   const lists: Array<{ next: number | undefined }> = []
-  // 表は一番外側だけを Markdown の表にする。内側の表は外側のセルの文字として流す。
-  // ただしセルに見出しや段落などのブロックを持つ表（レイアウト用の表）は、表にせず本文として流す。
+  // 表は一番外側だけを Markdown の表にする。
+  // ただしセルに見出し・リスト・入れ子の表などを持つ表（レイアウト用の表）は、表にせず本文として流す。
   // 表にすると改行がすべて空白になり、ページ全体が 1 行に潰れるため
   let tableDepth = 0
   let isDataTable = false
@@ -203,14 +206,23 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
   let cells = 0
   const inDataTable = () => isDataTable && tableDepth > 0
 
+  // 前回の先読みで見つけた位置と、それが `</table>` だったか。見つからなければ undefined
+  let lastSignal: { at: number; isClose: boolean } | undefined
+  let hasSearched = false
   /**
    * 表の開始位置から先を見て、最初に現れるのが `</table>` ならデータの表、ブロック要素ならレイアウト用の表とみなす。
-   * 一番外側の表ごとに 1 回だけ、その表の中だけを読むので、全体の走査量は入力長に比例する
+   * 開始位置は前に進む一方なので、前回見つけた位置がまだ先にあれば読み直さない。
+   * 表ごとに末尾まで読み直すと、手がかりの無い表が続く入力で2乗時間になる
    */
   const isDataTableAhead = (from: number) => {
-    LAYOUT_SIGNAL.lastIndex = from
-    const found = LAYOUT_SIGNAL.exec(html)
-    return found === null || found[0][1] === '/'
+    const isStale = !hasSearched || (lastSignal !== undefined && lastSignal.at < from)
+    if (isStale) {
+      LAYOUT_SIGNAL.lastIndex = from
+      const found = LAYOUT_SIGNAL.exec(html)
+      lastSignal = found === null ? undefined : { at: found.index, isClose: found[0][1] === '/' }
+      hasSearched = true
+    }
+    return lastSignal === undefined || lastSignal.isClose
   }
 
   // データの表の中では改行を空白にする。セル内の改行は Markdown の表の行を壊すため。
@@ -355,9 +367,11 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
         row++
       }
     } else if ((name === 'td' || name === 'th') && isClosing && tableDepth > 0) {
-      // データの表の内側の表のセルは外側のセルの中身なので、区切りの | を出さない
+      // 入れ子の表はレイアウト用の手がかりなので、データの表の内側に表が来るのは、先読みが属性値やコメントの中の
+      // `</table>` を拾ったときだけ。その内側のセルは外側のセルの中身として、区切りの | を出さない。
+      // レイアウト用の表はセルごとに改行するだけにする（| を出すと、行頭や単独の | が本文に残る）
       if (isDataTable && tableDepth === 1) cells++
-      emit(isDataTable && tableDepth > 1 ? ' ' : ' | ')
+      emit(!isDataTable ? '\n' : tableDepth > 1 ? ' ' : ' | ')
     } else if (BLOCKS.has(name) && isClosing) {
       emit('\n\n')
     }

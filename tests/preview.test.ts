@@ -54,13 +54,22 @@ describe('HTML から Markdown への変換', () => {
   })
 
   test('ブロックを持つレイアウト用の表は、表にせず見出しやリストを保つ', async () => {
-    const layout = htmlToMarkdown('<table><tr><td><h1>題</h1><p>説明</p><ul><li>a</li></ul></td></tr></table>')
+    const layout = htmlToMarkdown('<table><tr><td><h1>題</h1><p>説明</p><ul><li>a</li></ul></td><td>b</td></tr></table>')
     expect(layout).toContain('# 題')
     expect(layout).toContain('\n- a')
+    expect(layout).toContain('\nb')
     expect(layout).not.toContain('---')
+    expect(layout).not.toContain('|')
     const unclosed = htmlToMarkdown('<table><tr><td>x</td></tr><h1>題</h1><p>段落</p>')
     expect(unclosed).toContain('# 題')
     expect(unclosed).not.toContain('---')
+  })
+
+  test('セルを p で包んだデータの表は表のまま変換する', async () => {
+    const markdown = htmlToMarkdown(
+      '<table><tr><th><p>Operation</p></th><th><p>Result</p></th></tr><tr><td><p><code>x or y</code></p></td><td><div>if x</div></td></tr></table>',
+    )
+    expect(markdown).toBe('| Operation | Result |\n| --- | --- |\n| `x or y` | if x |')
   })
 
   test('データの表のセル内のリンクと画像の | で表を壊さない', async () => {
@@ -78,6 +87,7 @@ describe('HTML から Markdown への変換', () => {
     const started = Date.now()
     htmlToMarkdown('<table><tr><td>a</td></tr></table><p>b</p>'.repeat(50_000))
     htmlToMarkdown('<table><td>'.repeat(100_000))
+    htmlToMarkdown('<table_></table_>'.repeat(30_000))
     expect(Date.now() - started).toBeLessThan(3000)
   })
 
