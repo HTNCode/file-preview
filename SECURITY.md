@@ -8,4 +8,4 @@
 
 ## 対象
 
-最新のリリースと`main`ブランチを対象にします。
+`main`ブランチの最新の版（`.claude-plugin/plugin.json`の`version`）を対象にします。
