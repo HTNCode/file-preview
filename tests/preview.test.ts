@@ -592,6 +592,27 @@ test('モデルが呼ぶツールではネットワークパスやスキーム�
   expect(statted[0]?.endsWith('C:\\work\\a.md')).toBe(true)
 })
 
+test('モデルが呼ぶツールの応答から、ファイルの有無・種類・大きさ・実体のパスが分からない', async ($, on) => {
+  on('fs.stat', async (_$, e) => {
+    if (e.path.endsWith('missing.md')) throw new Error(`ENOENT: ${e.path}`)
+    const kind = e.path.endsWith('dir.md') ? 'dir' : 'file'
+    const size = e.path.endsWith('big.md') ? 10 * 1024 * 1024 : 1
+    return { value: { kind, size, mtimeMs: 1, isLink: true, realPath: '/real/secret/target.md' } }
+  })
+  on('fs.read', async () => ({ value: '# a' }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  const denials = new Set<string>()
+  for (const target of ['missing.md', 'dir.md', 'big.md']) {
+    const called = await $.tool.call({ tool: 'mcp__file-preview__open', target })
+    denials.add(String(called.deny))
+  }
+  expect(denials.size).toBe(1)
+  expect([...denials][0]).not.toContain('.md')
+  const opened = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'link.md' })
+  expect(String(opened.result)).toContain('link.md')
+  expect(String(opened.result)).not.toContain('/real/secret')
+})
+
 test('利用者以外から届いた /preview では URL もネットワークパスも開かない', async ($, on) => {
   let fetched = 0
   const statted: string[] = []
