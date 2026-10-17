@@ -603,6 +603,14 @@ test('利用者以外から届いた /preview では URL もネットワーク�
   }
   expect(fetched).toBe(0)
   expect(statted).toEqual([])
+  // ローカルのファイルは、利用者以外から届いた /preview でも開ける
+  const local = await $.command.run({
+    command: 'preview',
+    args: 'a.md',
+    origin: { kind: 'peer-send-message' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+  expect(local.text).toBe('プレビュー: /work/a.md')
 })
 
 test('制御文字を含むパスや長い URL でもペインを描く', async ($, on) => {
