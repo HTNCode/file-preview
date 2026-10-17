@@ -473,7 +473,7 @@ test('モデルが呼ぶツールでは URL を取得しない', async ($, on) =
     fetched++
     return { value: { ok: true, status: 200, headers: {}, text: '<p>x</p>' } }
   })
-  const called = await $.tool.call({ tool: 'mcp__file-preview__open', input: { target: 'https://example.com/?q=1' } })
+  const called = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'https://example.com/?q=1' })
   expect(called.deny).toContain('/preview')
   expect(fetched).toBe(0)
 })
@@ -497,12 +497,13 @@ test('モデルが呼ぶツールではネットワークパスやスキーム�
     'HTTPS://evil/a.md',
   ]
   for (const target of targets) {
-    const called = await $.tool.call({ tool: 'mcp__file-preview__open', input: { target } })
+    const called = await $.tool.call({ tool: 'mcp__file-preview__open', target })
     expect(called.deny).toContain('/preview')
   }
   expect(statted).toEqual([])
-  const local = await $.tool.call({ tool: 'mcp__file-preview__open', input: { target: 'C:\\work\\a.md' } })
+  const local = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'C:\\work\\a.md' })
   expect(local.deny).toBeUndefined()
+  expect(String(local.result)).toContain('in the preview pane')
   // ドライブ名はスキームとみなさずに通す（テストを動かす macOS では作業ディレクトリ基準の相対パスとして解決される）
   expect(statted.length).toBe(1)
   expect(statted[0]?.endsWith('C:\\work\\a.md')).toBe(true)

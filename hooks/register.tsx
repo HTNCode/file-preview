@@ -244,11 +244,11 @@ export const register: Register = (on) => {
   // 拒否の判断を持つフックなので .catch を付ける。無いと、持ち時間の超過や例外でフックが飛ばされ、
   // エンジンの既定の処理に進んでしまう
   on('tool.call', { tool: 'mcp__file-preview__open' }, async ($, e) => {
-    const input = e.input as { target?: unknown }
-    if (typeof input.target !== 'string' || input.target.trim() === '') {
+    // モデルの引数は e.input ではなく、tool や tool_use_id と並んでイベントの最上位に入る
+    if (typeof e.target !== 'string' || e.target.trim() === '') {
       return { deny: 'target (local file path) is required' }
     }
-    const target = unquote(input.target)
+    const target = unquote(e.target)
     // このフックはツールの結果を自分で返すため、エンジンの許可確認を通らない。
     // URL を受け付けると、確認なしに任意の宛先へ GET を送れてしまう（クエリに秘密値を載せた持ち出し、
     // ループバックやメタデータ宛ての SSRF）。URL の取得は利用者が打つ /preview に限る
