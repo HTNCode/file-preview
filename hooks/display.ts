@@ -59,6 +59,27 @@ function transformListItem(line: string): string | undefined {
   return undefined
 }
 
+/** リスト項目の本文が始まる桁（記号と後ろの空白を含めた幅）。項目の行でなければ 0 */
+function itemContentWidth(line: string): number {
+  const match = BULLET.exec(line) ?? ORDERED.exec(line)
+  if (match === null) return 0
+  const prefix = line.slice(0, line.length - (match.at(-1) ?? '').length)
+  return indentWidth(prefix.replace(/[^ \t]/g, ' '))
+}
+
+/**
+ * リスト項目の中で字下げした行を組み直す。記号を・に変えてリストではなくなったので、
+ * - 本文の桁より 4 以上深い行は、本文の桁の分だけ字下げを外してインデントのコードとして残す
+ * - 見出し・引用・区切り線は字下げを外し、それぞれの要素として描かれるようにする
+ * - それ以外の続きの段落は、半角の字下げのままだとインデントのコードとして描かれるので、項目と同じく全角で字下げする
+ */
+function transformListContinuation(line: string, contentWidth: number): string {
+  if (indentWidth(line) >= contentWidth + 4) return dedent([line], contentWidth)[0] ?? line
+  const body = line.trimStart()
+  if (body.startsWith('>') || RULE.test(body)) return body
+  return transformHeading(body) ?? `${indent(line.slice(0, line.length - body.length))}${body}`
+}
+
 function transformHeading(line: string): string | undefined {
   const heading = HEADING.exec(line)
   if (heading === null) return undefined
@@ -156,6 +177,8 @@ export function toDisplayBlocks(markdown: string): DisplayBlock[] {
   let produced = 0
   // 直前までリストの中か。字下げ 4 以上の行は、リストの中なら入れ子の項目、外ならインデントのコードとして扱う
   let isInList = false
+  // 直前のリスト項目の本文が始まる桁。項目の中で字下げした行が、続きの段落かインデントのコードかを見分ける
+  let listContentWidth = 0
 
   const flush = () => {
     // 前後の空行は、改行を含まない行の配列のまま落とす。結合後に `/\n+$/` で削ると、空行が長く続く入力で2乗時間になる
@@ -216,16 +239,14 @@ export function toDisplayBlocks(markdown: string): DisplayBlock[] {
     if (item !== undefined) {
       push(item)
       isInList = true
+      listContentWidth = itemContentWidth(line)
       // `・b` の次の `---` は setext の見出しの下線になってしまうので、空行で切り離す
       if (next !== undefined && SETEXT_UNDERLINE.test(next)) push('')
       continue
     }
     if (line.trim() !== '' && width === 0) isInList = false
     if (isInList && width > 0) {
-      // リスト項目の続きの段落。記号を・に変えてリストではなくなったので、半角の字下げのままだと
-      // インデントのコードとして描かれる。項目と同じく全角の字下げにする
-      const body = line.trimStart()
-      push(`${indent(line.slice(0, line.length - body.length))}${body}`)
+      push(transformListContinuation(line, listContentWidth))
       continue
     }
     push(transformHeading(line) ?? line)

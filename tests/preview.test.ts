@@ -473,6 +473,14 @@ describe('ペインの表示用の組み直し', () => {
     expect(toDisplayBlocks('1. 手順\n\n    説明')).toEqual([{ kind: 'markdown', text: '1\\. 手順\n\n　　説明' }])
   })
 
+  test('リスト項目の中の見出し・引用・区切り線・インデントのコードは、それぞれの要素として残す', async () => {
+    const text = (markdown: string) => toDisplayBlocks(markdown).map((block) => block.text).join('\n')
+    expect(text('- 項目\n  ## 小見出し')).toBe('・項目\n## □ 小見出し')
+    expect(text('- 項目\n\n  > 引用')).toBe('・項目\n\n> 引用')
+    expect(text('- 項目\n  ---')).toBe('・項目\n\n---')
+    expect(text('- 手順\n\n      def __init__(self):')).toBe('・手順\n\n    def __init__(self):')
+  })
+
   test('閉じていないコードブロックは末尾まで続く', async () => {
     expect(toDisplayBlocks('```\na\nb')).toEqual([{ kind: 'code', text: '```\na\nb' }])
   })
