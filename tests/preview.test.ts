@@ -657,7 +657,12 @@ test('作業ディレクトリの配下かを、区切りの位置と Windows �
   expect(isInsideRoot('\\\\server\\Share\\a.md', '\\\\server\\share')).toBe(true)
 })
 
-test('モデルが呼ぶツールの応答から、ファイルの有無・種類・大きさ・実体のパスが分からない', async ($, on) => {
+test('モデルが呼ぶツールの応答から、開けなかった理由と実体のパスが分からない', async ($, on) => {
+  const logs: string[] = []
+  on('ui.log', async (_$, e) => {
+    if (e.to === 'debug') logs.push(e.text)
+    return { value: undefined }
+  })
   const cwd = '/real'
   on('session.cwd', async () => ({ value: cwd }))
   on('fs.stat', async (_$, e) => {
@@ -676,6 +681,8 @@ test('モデルが呼ぶツールの応答から、ファイルの有無・種�
   }
   expect(denials.size).toBe(1)
   expect([...denials][0]).not.toContain('.md')
+  // 理由はデバッグログにだけ残る
+  expect(logs.some((line) => line.includes('ファイルが大きすぎます'))).toBe(true)
   const opened = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'link.md' })
   expect(String(opened.result)).toContain('link.md')
   expect(String(opened.result)).not.toContain('secret')

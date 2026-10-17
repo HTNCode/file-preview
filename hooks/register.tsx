@@ -314,7 +314,8 @@ export const register: Register = (on) => {
     // ここに届くのは、持ち時間の超過か、上の try の外で起きたエンジン内部の例外。例外文の中身を選べず、
     // モデルへの応答に出してよいか判断できないので、理由はデバッグログにだけ残す。re-entry のときは `$` の呼び出しが拒否されるので記録しない
     if (next.error.kind !== 're-entry') $.ui.log(`file-preview: open: ${next.error.kind} ${next.error.message ?? ''}`, { to: 'debug' })
-    return { deny: next.error.kind === 'timeout' ? 'Could not preview it: it took too long.' : COULD_NOT_PREVIEW }
+    // 時間切れも同じ文言にする。分けると、応答の遅いパス（ネットワーク上を指すリンクなど）を見分けられる
+    return { deny: COULD_NOT_PREVIEW }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
