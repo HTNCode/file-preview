@@ -671,6 +671,9 @@ test('作業ディレクトリの配下かを、区切りの位置と Windows �
   expect(isInsideRoot('C:\\\u{10400}\\secret.md', 'C:\\\u{10428}')).toBe(false)
   expect(isInsideRoot('C:\\STRASSE\\a.md', 'C:\\straße')).toBe(false)
   expect(isInsideRoot('C:\\É\\a.md', 'C:\\é')).toBe(false)
+  // ı と ſ は大文字化すると ASCII の I と S になる
+  expect(isInsideRoot('C:\\ITEM\\a.md', 'C:\\\u0131tem')).toBe(false)
+  expect(isInsideRoot('C:\\SECRET\\a.md', 'C:\\\u017fecret')).toBe(false)
   expect(isInsideRoot('\\\\server\\Share\\a.md', '\\\\server\\share')).toBe(true)
 })
 
@@ -883,12 +886,13 @@ test('利用者が開いた作業ディレクトリの外の文書を、利用�
   })
   const run = (args: string, kind: 'composer' | 'peer-send-message') =>
     $.command.run({ command: 'preview', args, origin: { kind }, presentation: { isFullscreen: true, columns: 160 } })
+  const beforeLoad = await run('', 'peer-send-message')
   await run('/home/me/secret.md', 'composer')
   expect(opened).toBe(1)
-  const ran = await run('', 'peer-send-message')
+  const afterLoad = await run('', 'peer-send-message')
   expect(opened).toBe(1)
   // 読み込み済みかどうかも応答から分からない
-  expect(ran.text).not.toContain('開きました')
+  expect(afterLoad.text).toBe(beforeLoad.text)
 })
 
 test('モデルのツールで開いた HTML は、撮影で読む間に外へ差し替えられたら撮らない', async ($, on) => {
@@ -986,6 +990,42 @@ test('撮影の後、撮影用の HTML のコピーを空にする', async ($, o
   expect(copies.at(-1)?.text).toBe('')
 })
 
+test('撮影用のコピーを空にできなくても撮影は成功とし、デバッグログに残す', async ($, on) => {
+  let launched = 0
+  const logs: string[] = []
+  on('fs.stat', async (_$, e) => {
+    if (e.path.endsWith('.png')) {
+      if (launched === 0) throw new Error('ENOENT')
+      return { value: { kind: 'file', size: 1, mtimeMs: 2, isLink: false } }
+    }
+    return { value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath: '/work/a.html' } }
+  })
+  on('fs.read', async () => ({ value: '<p>a</p>' }))
+  on('fs.write', async (_$, e) => {
+    if (launched > 0 && e.text === '') throw new Error('EACCES')
+    return { value: undefined }
+  })
+  on('env.get', async (_$, e) => ({ value: e.name === 'FILE_PREVIEW_BROWSER' ? '/bin/browser' : '/tmp' }))
+  on('process.run', async () => {
+    launched++
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('ui.log', async (_$, e) => {
+    if (e.to === 'debug') logs.push(e.text)
+    return { value: undefined }
+  })
+  on('clock.now', async () => ({ value: 1 }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  await $.command.run({ command: 'preview', args: 'a.html', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const pane = await $.ui.mount({ plugin: 'file-preview', surface: 'terminal', component: 'Pane', requestId: 'file-preview', props: PANE_PROPS })
+  await pane.press({ key: 'shot' })
+  const image = await pane.find({ key: 'shot-image' })
+  await pane.unmount()
+  expect(launched).toBe(1)
+  expect(image).toBeDefined()
+  expect(logs.some((line) => line.includes('撮影用のコピーを空にできませんでした'))).toBe(true)
+})
+
 test('一時フォルダがネットワーク上のときは、撮影用のコピーを書く前に止める', async ($, on) => {
   const copies: string[] = []
   on('fs.stat', async () => ({ value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath: '/work/a.html' } }))
@@ -1002,6 +1042,27 @@ test('一時フォルダがネットワーク上のときは、撮影用のコ�
   await pane.press({ key: 'shot' })
   await pane.unmount()
   expect(copies).toEqual([])
+})
+
+test('ネットワーク上の HTML は、撮影のときに情報を読む前に断る', async ($, on) => {
+  let statted = 0
+  on('fs.stat', async () => {
+    statted++
+    return { value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath: '\\\\server\\share\\a.html' } }
+  })
+  on('fs.read', async () => ({ value: '<p>a</p>' }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  await $.command.run({
+    command: 'preview',
+    args: '\\\\server\\share\\a.html',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+  const statsAfterOpen = statted
+  const pane = await $.ui.mount({ plugin: 'file-preview', surface: 'terminal', component: 'Pane', requestId: 'file-preview', props: PANE_PROPS })
+  await pane.press({ key: 'shot' })
+  await pane.unmount()
+  expect(statted).toBe(statsAfterOpen)
 })
 
 test('閉じるボタン（q）でペインを閉じる', async ($, on) => {
