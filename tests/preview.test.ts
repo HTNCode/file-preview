@@ -687,7 +687,7 @@ test('モデルが呼ぶツールの応答から、開けなかった理由と�
   on('session.root', async () => ({ value: cwd }))
   on('fs.stat', async (_$, e) => {
     if (e.path === cwd) return { value: { kind: 'dir', size: 1, mtimeMs: 1, isLink: false, realPath: cwd } }
-    if (e.path.endsWith('missing.md')) throw new Error(`ENOENT: ${e.path}`)
+    if (e.path.endsWith('missing.md')) return { deny: `ENOENT: ${e.path}` }
     const kind = e.path.endsWith('dir.md') ? 'dir' : 'file'
     const size = e.path.endsWith('big.md') ? 10 * 1024 * 1024 : 1
     return { value: { kind, size, mtimeMs: 1, isLink: true, realPath: `${cwd}/secret/target.md` } }
@@ -964,7 +964,7 @@ test('撮影の後、撮影用の HTML のコピーを空にする', async ($, o
   const writes: Array<{ path: string; text: string }> = []
   on('fs.stat', async (_$, e) => {
     if (e.path.endsWith('.png')) {
-      if (launched === 0) throw new Error('ENOENT')
+      if (launched === 0) return { deny: 'ENOENT' }
       return { value: { kind: 'file', size: 1, mtimeMs: 2, isLink: false } }
     }
     return { value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath: '/work/a.html' } }
@@ -995,14 +995,14 @@ test('撮影用のコピーを空にできなくても撮影は成功とし、�
   const logs: string[] = []
   on('fs.stat', async (_$, e) => {
     if (e.path.endsWith('.png')) {
-      if (launched === 0) throw new Error('ENOENT')
+      if (launched === 0) return { deny: 'ENOENT' }
       return { value: { kind: 'file', size: 1, mtimeMs: 2, isLink: false } }
     }
     return { value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath: '/work/a.html' } }
   })
   on('fs.read', async () => ({ value: '<p>a</p>' }))
   on('fs.write', async (_$, e) => {
-    if (launched > 0 && e.text === '') throw new Error('EACCES')
+    if (launched > 0 && e.text === '') return { deny: 'EACCES' }
     return { value: undefined }
   })
   on('env.get', async (_$, e) => ({ value: e.name === 'FILE_PREVIEW_BROWSER' ? '/bin/browser' : '/tmp' }))
@@ -1023,7 +1023,7 @@ test('撮影用のコピーを空にできなくても撮影は成功とし、�
   await pane.unmount()
   expect(launched).toBe(1)
   expect(image).toBeDefined()
-  expect(logs.some((line) => line.includes('撮影用のコピーを空にできませんでした'))).toBe(true)
+  expect(logs.some((line) => line.includes('撮影用のコピーを空にできませんでした') && line.includes('EACCES'))).toBe(true)
 })
 
 test('一時フォルダがネットワーク上のときは、撮影用のコピーを書く前に止める', async ($, on) => {
