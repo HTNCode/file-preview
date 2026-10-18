@@ -168,6 +168,14 @@ export function codeFence(text: string, language = ''): string {
   return `${marker}${language}\n${text}\n${marker}`
 }
 
+/**
+ * データの表のセルに入れる文字の `|` と `\` をエスケープする。`|` だけだと、元の文字の `\|` が `\\|`
+ * （文字の `\` とセルの区切り）になり、GFM の表でセルが増える
+ */
+function escapeTableCell(text: string): string {
+  return text.replace(/[\\|]/g, '\\$&')
+}
+
 // 入れ子のリストの字下げだけは残す。ほかの行頭の空白は、元の HTML の改行やインデントに由来するので消す
 const LIST_ITEM_INDENT = /^( +)(?=- |\d+\. )/
 
@@ -237,7 +245,7 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
   const pushText = (raw: string) => {
     const decoded = decodeEntities(raw)
     if (pre !== undefined) emit(decoded)
-    else emit((inDataTable() ? decoded.replace(/\|/g, '\\|') : decoded).replace(/\s+/g, ' '))
+    else emit((inDataTable() ? escapeTableCell(decoded) : decoded).replace(/\s+/g, ' '))
   }
   const flushText = () => {
     segments.push({ text: out.join('') })
@@ -326,7 +334,8 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
       emit('`')
     } else if (name === 'img' && !isClosing) {
       const alt = attribute(attrs, 'alt')
-      const label = inDataTable() ? alt?.trim().replace(/\|/g, '\\|') : alt?.trim()
+      const trimmed = alt?.trim()
+      const label = inDataTable() && trimmed !== undefined ? escapeTableCell(trimmed) : trimmed
       if (label !== undefined && label !== '') emit(`[画像: ${label}]`)
     } else if (name === 'br') {
       emit('\n')

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { toDisplayBlocks } from '../hooks/display'
+import { splitRow, toDisplayBlocks } from '../hooks/display'
 import { extractTitle, htmlToMarkdown } from '../hooks/html-to-markdown'
 import {
   MAX_CHARS,
@@ -86,6 +86,12 @@ describe('HTML から Markdown への変換', () => {
       '<table><tr><th>h</th></tr><tr><td><a href="https://e.com/a|b">x</a><img alt="c|d"></td></tr></table>',
     )
     expect(markdown).toBe('| h |\n| --- |\n| [x](https://e.com/a%7Cb)[画像: c\\|d] |')
+  })
+
+  test('データの表のセル内の \\ もエスケープし、元の \\| でセルを増やさない', async () => {
+    const markdown = htmlToMarkdown('<table><tr><th>h</th></tr><tr><td>a\\|b C:\\x<img alt="e\\|f"></td></tr></table>')
+    expect(markdown).toBe('| h |\n| --- |\n| a\\\\\\|b C:\\\\x[画像: e\\\\\\|f] |')
+    expect(splitRow(markdown.split('\n')[2] ?? '')).toEqual(['a\\\\|b C:\\\\x[画像: e\\\\|f]'])
   })
 
   test('<ol start> と <li value> の番号を保つ', async () => {
