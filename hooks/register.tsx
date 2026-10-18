@@ -191,6 +191,7 @@ async function showInsideRoot($: EngineInterface, target: string): Promise<void>
  * モデルのツールと同じく開ける範囲を作業ディレクトリの配下に限り、失敗の理由と実体のパスを返さない
  */
 async function previewForOthers($: EngineInterface, target: string): Promise<{ text: string }> {
+  if (target === '') return { text: COULD_NOT_PREVIEW_JA }
   // ネットワークパスも、ファイルの情報を読むだけで外部へ接続しうるので URL と同じく利用者の入力に限る
   if (isWebUrl(target) || !isLocalPathSpelling(target)) {
     return { text: 'URL やネットワーク上のパスのプレビューは、利用者が入力した /preview だけで受け付けます。' }
@@ -315,12 +316,14 @@ export const register: Register = (on) => {
 
   on('command.run', { command: 'preview' }, async ($, e) => {
     const target = unquote(e.args)
+    // 空の /preview は直前のプレビューを開き直すので、起点の判定より後に置く。前に置くと、利用者が開いた
+    // 作業ディレクトリの外の文書を、利用者以外が開き直せてしまう
+    if (!USER_ORIGINS.has(e.origin.kind)) return previewForOthers($, target)
     if (target === '') {
       if ((await read($, docAtom)) === null) return { text: USAGE }
       await $.ui.open({ id: PANE, title: 'Preview' })
       return { text: 'プレビューを開きました。' }
     }
-    if (!USER_ORIGINS.has(e.origin.kind)) return previewForOthers($, target)
     try {
       const doc = await show($, target)
       return { text: `プレビュー: ${redactSource(doc.source)}` }

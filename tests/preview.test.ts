@@ -867,6 +867,25 @@ test('モデルのツールで開いた HTML は、撮影でも作業ディレ�
   expect(launched).toBe(0)
 })
 
+test('利用者が開いた作業ディレクトリの外の文書を、利用者以外の空の /preview で開き直さない', async ($, on) => {
+  let opened = 0
+  on('session.root', async () => ({ value: '/work' }))
+  on('fs.stat', async () => ({ value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath: '/home/me/secret.md' } }))
+  on('fs.read', async () => ({ value: '# secret' }))
+  on('ui.open', async () => {
+    opened++
+    return { value: { isPlaced: true } }
+  })
+  const run = (args: string, kind: 'composer' | 'peer-send-message') =>
+    $.command.run({ command: 'preview', args, origin: { kind }, presentation: { isFullscreen: true, columns: 160 } })
+  await run('/home/me/secret.md', 'composer')
+  expect(opened).toBe(1)
+  const ran = await run('', 'peer-send-message')
+  expect(opened).toBe(1)
+  // 読み込み済みかどうかも応答から分からない
+  expect(ran.text).not.toContain('開きました')
+})
+
 test('モデルのツールで開いた HTML は、撮影で読む間に外へ差し替えられたら撮らない', async ($, on) => {
   let realPath = '/work/a.html'
   let isShooting = false
