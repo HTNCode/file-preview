@@ -84,10 +84,11 @@ export function shotKey(source: string): string {
  * リクエストを送らせない（SSRF）ため。到達できないプロキシを指定し、`<-loopback>` でループバックの例外も外す。
  * プロキシを通らない file:// の UNC 参照は、hardenHtmlForScreenshot のコピーと JavaScript の無効化で防ぐ。
  * `hardenedCopy` には hardenHtmlForScreenshot で作ったファイルを渡す（元のファイルを直接開かない）。
+ * 撮影元のネットワークパスは呼び出し側で先に断るので、ここで弾くのは一時フォルダがローカルでないときになる。
  */
 export function screenshotArgv(browser: string, hardenedCopy: string, file: string, profile: string): string[] {
   if (isWebUrl(hardenedCopy) || isNetworkPath(hardenedCopy)) {
-    throw new Error('スクリーンショットはローカルの HTML ファイルだけが対象です')
+    throw new Error('一時フォルダがローカルのフォルダではないため、スクリーンショットを撮れません')
   }
   return [
     browser,

@@ -1040,8 +1040,10 @@ test('一時フォルダがネットワーク上のときは、撮影用のコ�
   await $.command.run({ command: 'preview', args: 'a.html', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   const pane = await $.ui.mount({ plugin: 'file-preview', surface: 'terminal', component: 'Pane', requestId: 'file-preview', props: PANE_PROPS })
   await pane.press({ key: 'shot' })
+  const notice = await pane.find({ text: '一時フォルダがローカルのフォルダではないため、スクリーンショットを撮れません' })
   await pane.unmount()
   expect(copies).toEqual([])
+  expect(notice).toBeDefined()
 })
 
 test('ネットワーク上の HTML は、撮影のときに情報を読む前に断る', async ($, on) => {
