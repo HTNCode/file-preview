@@ -1,6 +1,6 @@
 {
   "name": "file-preview",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Markdown / HTML ファイルと URL を Claude Code のペインでプレビューする",
   "author": { "name": "htncode", "url": "https://www.htncode.com/contact" },
   "repository": "https://github.com/HTNCode/file-preview",
