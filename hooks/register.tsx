@@ -42,13 +42,13 @@ let openGeneration = 0
 // $.fs.read が受け付ける上限（4 MiB）。読む前に弾いて、分かりやすい理由を返す
 const MAX_FILE_BYTES = 4 * 1024 * 1024
 // 利用者自身の入力にあたるコマンドの呼び出し元（端末、Remote Control、SDK のホスト）。これ以外（通知・別セッション・
-// チャンネルなど）から届いた /preview は、モデルのツールと同じく作業ディレクトリの配下のファイルだけを開く
+// チャンネルなど）から届いた /preview は、モデルのツールと同じく作業ディレクトリの配下の文書だけを開く
 const USER_ORIGINS = new Set(['composer', 'bridge', 'sdk'])
 // 許可確認を通らない呼び出し元（モデルのツール、利用者以外の /preview）へ返す、失敗の文言。
 // 理由ごとに変えると、応答からファイルの有無・種類・大きさを調べられる
 const COULD_NOT_PREVIEW = 'Could not preview it.'
 const COULD_NOT_PREVIEW_JA =
-  'プレビューできませんでした。作業ディレクトリの外のファイルや URL は、利用者が入力した /preview で開いてください。'
+  'プレビューできませんでした。作業ディレクトリの外のファイルや、Markdown・HTML・.txt 以外のファイルは、利用者が入力した /preview で開いてください。'
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -159,8 +159,11 @@ async function takeScreenshot($: EngineInterface, source: string, within?: strin
   const before = await $.fs.stat(file).catch(() => undefined)
   // ブラウザの stderr にはローカルパスや URL が混ざるため、利用者への表示には使わない
   const { exitCode } = await $.process.run(argv, { timeoutMs: 60_000 }).finally(() =>
-    // 文書の写しを一時フォルダに残さない。$.fs に削除が無いので空にする
-    $.fs.write(hardenedCopy, '').catch(() => undefined),
+    // 文書の写しを一時フォルダに残さない。$.fs に削除が無いので空にする。
+    // 空にできなくても撮影の成否は変えない（写しは中身ごと残るので、デバッグログに記録する）
+    $.fs.write(hardenedCopy, '').catch((error: unknown) => {
+      $.ui.log(`file-preview: 撮影用のコピーを空にできませんでした: ${errorText(error)}`, { to: 'debug' })
+    }),
   )
   const written = await $.fs.stat(file).catch(() => undefined)
   const isFresh = written !== undefined && (before === undefined || written.mtimeMs > before.mtimeMs)
@@ -363,7 +366,8 @@ export const register: Register = (on) => {
     // ここに届くのは、持ち時間の超過か、上の try の外で起きたエンジン内部の例外。例外文の中身を選べず、
     // モデルへの応答に出してよいか判断できないので、理由はデバッグログにだけ残す。re-entry のときは `$` の呼び出しが拒否されるので記録しない
     if (next.error.kind !== 're-entry') $.ui.log(`file-preview: open: ${next.error.kind} ${next.error.message ?? ''}`, { to: 'debug' })
-    // 時間切れも同じ文言にする。分けると、応答の遅いパス（ネットワーク上を指すリンクなど）を見分けられる
+    // 時間切れも同じ文言にする。`$` の呼び出しを待つ間は持ち時間が止まるので、時間切れになるのはフック自身の
+    // 処理（大きな HTML の変換など）が長引いたとき。分けると、開こうとした文書の大きさや中身の傾向が応答から分かる
     return { deny: COULD_NOT_PREVIEW }
   })
 
