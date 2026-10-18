@@ -316,15 +316,16 @@ describe('パスと本文の扱い', () => {
     expect(toFileUrl('C:\\Users\\me\\a#1.html')).toBe('file:///C:/Users/me/a%231.html')
   })
 
-  test('撮影はローカル HTML だけで、ブラウザの通信とスクリプトを止めて起動する', async () => {
+  test('撮影用コピーの置き場所はローカルに限り、ブラウザの通信とスクリプトを止めて起動する', async () => {
+    const NOT_LOCAL_TEMP = '一時フォルダがローカルのフォルダではない'
     const argv = screenshotArgv('chrome', '/x/a.html', '/tmp/s.png', '/tmp/p')
     expect(argv).toContain('--proxy-server=http://127.0.0.1:9')
     expect(argv).toContain('--proxy-bypass-list=<-loopback>')
     expect(argv).toContain('--blink-settings=scriptEnabled=false')
     expect(argv.at(-1)).toBe('file:///x/a.html')
-    expect(() => screenshotArgv('chrome', 'https://e.com/', '/tmp/s.png', '/tmp/p')).toThrow()
-    expect(() => screenshotArgv('chrome', '\\\\server\\share\\a.html', '/tmp/s.png', '/tmp/p')).toThrow()
-    expect(() => screenshotArgv('chrome', '//server/share/a.html', '/tmp/s.png', '/tmp/p')).toThrow()
+    expect(() => screenshotArgv('chrome', 'https://e.com/', '/tmp/s.png', '/tmp/p')).toThrow(NOT_LOCAL_TEMP)
+    expect(() => screenshotArgv('chrome', '\\\\server\\tmp\\a.html', '/tmp/s.png', '/tmp/p')).toThrow(NOT_LOCAL_TEMP)
+    expect(() => screenshotArgv('chrome', '//server/tmp/a.html', '/tmp/s.png', '/tmp/p')).toThrow(NOT_LOCAL_TEMP)
   })
 
   test('撮影用コピーは CSP で読み込みを止め、元の meta と link を無効にする', async () => {
@@ -703,6 +704,7 @@ test('モデルが呼ぶツールの応答から、開けなかった理由と�
   expect([...denials][0]).not.toContain('.md')
   // 理由はデバッグログにだけ残る
   expect(logs.some((line) => line.includes('ファイルが大きすぎます'))).toBe(true)
+  expect(logs.some((line) => line.includes('ENOENT'))).toBe(true)
   const opened = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'link.md' })
   expect(String(opened.result)).toContain('link.md')
   expect(String(opened.result)).not.toContain('secret')
