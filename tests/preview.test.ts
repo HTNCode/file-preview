@@ -316,15 +316,16 @@ describe('パスと本文の扱い', () => {
     expect(toFileUrl('C:\\Users\\me\\a#1.html')).toBe('file:///C:/Users/me/a%231.html')
   })
 
-  test('撮影はローカル HTML だけで、ブラウザの通信とスクリプトを止めて起動する', async () => {
+  test('撮影用コピーの置き場所はローカルに限り、ブラウザの通信とスクリプトを止めて起動する', async () => {
+    const NOT_LOCAL_TEMP = '一時フォルダがローカルのフォルダではない'
     const argv = screenshotArgv('chrome', '/x/a.html', '/tmp/s.png', '/tmp/p')
     expect(argv).toContain('--proxy-server=http://127.0.0.1:9')
     expect(argv).toContain('--proxy-bypass-list=<-loopback>')
     expect(argv).toContain('--blink-settings=scriptEnabled=false')
     expect(argv.at(-1)).toBe('file:///x/a.html')
-    expect(() => screenshotArgv('chrome', 'https://e.com/', '/tmp/s.png', '/tmp/p')).toThrow()
-    expect(() => screenshotArgv('chrome', '\\\\server\\share\\a.html', '/tmp/s.png', '/tmp/p')).toThrow()
-    expect(() => screenshotArgv('chrome', '//server/share/a.html', '/tmp/s.png', '/tmp/p')).toThrow()
+    expect(() => screenshotArgv('chrome', 'https://e.com/', '/tmp/s.png', '/tmp/p')).toThrow(NOT_LOCAL_TEMP)
+    expect(() => screenshotArgv('chrome', '\\\\server\\tmp\\a.html', '/tmp/s.png', '/tmp/p')).toThrow(NOT_LOCAL_TEMP)
+    expect(() => screenshotArgv('chrome', '//server/tmp/a.html', '/tmp/s.png', '/tmp/p')).toThrow(NOT_LOCAL_TEMP)
   })
 
   test('撮影用コピーは CSP で読み込みを止め、元の meta と link を無効にする', async () => {
@@ -671,6 +672,9 @@ test('作業ディレクトリの配下かを、区切りの位置と Windows �
   expect(isInsideRoot('C:\\\u{10400}\\secret.md', 'C:\\\u{10428}')).toBe(false)
   expect(isInsideRoot('C:\\STRASSE\\a.md', 'C:\\straße')).toBe(false)
   expect(isInsideRoot('C:\\É\\a.md', 'C:\\é')).toBe(false)
+  // ı と ſ は大文字化すると ASCII の I と S になる
+  expect(isInsideRoot('C:\\ITEM\\a.md', 'C:\\\u0131tem')).toBe(false)
+  expect(isInsideRoot('C:\\SECRET\\a.md', 'C:\\\u017fecret')).toBe(false)
   expect(isInsideRoot('\\\\server\\Share\\a.md', '\\\\server\\share')).toBe(true)
 })
 
@@ -684,7 +688,7 @@ test('モデルが呼ぶツールの応答から、開けなかった理由と�
   on('session.root', async () => ({ value: cwd }))
   on('fs.stat', async (_$, e) => {
     if (e.path === cwd) return { value: { kind: 'dir', size: 1, mtimeMs: 1, isLink: false, realPath: cwd } }
-    if (e.path.endsWith('missing.md')) throw new Error(`ENOENT: ${e.path}`)
+    if (e.path.endsWith('missing.md')) return { deny: `ENOENT: ${e.path}` }
     const kind = e.path.endsWith('dir.md') ? 'dir' : 'file'
     const size = e.path.endsWith('big.md') ? 10 * 1024 * 1024 : 1
     return { value: { kind, size, mtimeMs: 1, isLink: true, realPath: `${cwd}/secret/target.md` } }
@@ -700,6 +704,7 @@ test('モデルが呼ぶツールの応答から、開けなかった理由と�
   expect([...denials][0]).not.toContain('.md')
   // 理由はデバッグログにだけ残る
   expect(logs.some((line) => line.includes('ファイルが大きすぎます'))).toBe(true)
+  expect(logs.some((line) => line.includes('ENOENT'))).toBe(true)
   const opened = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'link.md' })
   expect(String(opened.result)).toContain('link.md')
   expect(String(opened.result)).not.toContain('secret')
@@ -883,12 +888,13 @@ test('利用者が開いた作業ディレクトリの外の文書を、利用�
   })
   const run = (args: string, kind: 'composer' | 'peer-send-message') =>
     $.command.run({ command: 'preview', args, origin: { kind }, presentation: { isFullscreen: true, columns: 160 } })
+  const beforeLoad = await run('', 'peer-send-message')
   await run('/home/me/secret.md', 'composer')
   expect(opened).toBe(1)
-  const ran = await run('', 'peer-send-message')
+  const afterLoad = await run('', 'peer-send-message')
   expect(opened).toBe(1)
   // 読み込み済みかどうかも応答から分からない
-  expect(ran.text).not.toContain('開きました')
+  expect(afterLoad.text).toBe(beforeLoad.text)
 })
 
 test('モデルのツールで開いた HTML は、撮影で読む間に外へ差し替えられたら撮らない', async ($, on) => {
@@ -960,7 +966,7 @@ test('撮影の後、撮影用の HTML のコピーを空にする', async ($, o
   const writes: Array<{ path: string; text: string }> = []
   on('fs.stat', async (_$, e) => {
     if (e.path.endsWith('.png')) {
-      if (launched === 0) throw new Error('ENOENT')
+      if (launched === 0) return { deny: 'ENOENT' }
       return { value: { kind: 'file', size: 1, mtimeMs: 2, isLink: false } }
     }
     return { value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath: '/work/a.html' } }
@@ -984,6 +990,83 @@ test('撮影の後、撮影用の HTML のコピーを空にする', async ($, o
   const copies = writes.filter((write) => write.path.endsWith('.html'))
   expect(copies.length).toBe(2)
   expect(copies.at(-1)?.text).toBe('')
+})
+
+test('撮影用のコピーを空にできなくても撮影は成功とし、デバッグログに残す', async ($, on) => {
+  let launched = 0
+  const logs: string[] = []
+  on('fs.stat', async (_$, e) => {
+    if (e.path.endsWith('.png')) {
+      if (launched === 0) return { deny: 'ENOENT' }
+      return { value: { kind: 'file', size: 1, mtimeMs: 2, isLink: false } }
+    }
+    return { value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath: '/work/a.html' } }
+  })
+  on('fs.read', async () => ({ value: '<p>a</p>' }))
+  on('fs.write', async (_$, e) => {
+    if (launched > 0 && e.text === '') return { deny: 'EACCES' }
+    return { value: undefined }
+  })
+  on('env.get', async (_$, e) => ({ value: e.name === 'FILE_PREVIEW_BROWSER' ? '/bin/browser' : '/tmp' }))
+  on('process.run', async () => {
+    launched++
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('ui.log', async (_$, e) => {
+    if (e.to === 'debug') logs.push(e.text)
+    return { value: undefined }
+  })
+  on('clock.now', async () => ({ value: 1 }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  await $.command.run({ command: 'preview', args: 'a.html', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const pane = await $.ui.mount({ plugin: 'file-preview', surface: 'terminal', component: 'Pane', requestId: 'file-preview', props: PANE_PROPS })
+  await pane.press({ key: 'shot' })
+  const image = await pane.find({ key: 'shot-image' })
+  await pane.unmount()
+  expect(launched).toBe(1)
+  expect(image).toBeDefined()
+  expect(logs.some((line) => line.includes('撮影用のコピーを空にできませんでした') && line.includes('EACCES'))).toBe(true)
+})
+
+test('一時フォルダがネットワーク上のときは、撮影用のコピーを書く前に止める', async ($, on) => {
+  const copies: string[] = []
+  on('fs.stat', async () => ({ value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath: '/work/a.html' } }))
+  on('fs.read', async () => ({ value: '<p>a</p>' }))
+  on('fs.write', async (_$, e) => {
+    if (e.path.endsWith('.html')) copies.push(e.text)
+    return { value: undefined }
+  })
+  on('env.get', async (_$, e) => ({ value: e.name === 'FILE_PREVIEW_BROWSER' ? '/bin/browser' : '//server/tmp' }))
+  on('process.run', async () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  await $.command.run({ command: 'preview', args: 'a.html', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const pane = await $.ui.mount({ plugin: 'file-preview', surface: 'terminal', component: 'Pane', requestId: 'file-preview', props: PANE_PROPS })
+  await pane.press({ key: 'shot' })
+  const notice = await pane.find({ text: '一時フォルダがローカルのフォルダではないため、スクリーンショットを撮れません' })
+  await pane.unmount()
+  expect(copies).toEqual([])
+  expect(notice).toBeDefined()
+})
+
+test('ネットワーク上の HTML は、撮影のときに情報を読む前に断る', async ($, on) => {
+  let statted = 0
+  on('fs.stat', async () => {
+    statted++
+    return { value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath: '\\\\server\\share\\a.html' } }
+  })
+  on('fs.read', async () => ({ value: '<p>a</p>' }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  await $.command.run({
+    command: 'preview',
+    args: '\\\\server\\share\\a.html',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+  const statsAfterOpen = statted
+  const pane = await $.ui.mount({ plugin: 'file-preview', surface: 'terminal', component: 'Pane', requestId: 'file-preview', props: PANE_PROPS })
+  await pane.press({ key: 'shot' })
+  await pane.unmount()
+  expect(statted).toBe(statsAfterOpen)
 })
 
 test('閉じるボタン（q）でペインを閉じる', async ($, on) => {
