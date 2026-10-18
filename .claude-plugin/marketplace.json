@@ -1,6 +1,6 @@
 {
-  "name": "file-preview-local",
+  "name": "htncode",
   "owner": { "name": "htncode" },
-  "description": "file-preview mod をローカルからインストールするためのマーケットプレイス",
+  "description": "htncode の Claude Code mod を配布するマーケットプレイス",
   "plugins": [{ "name": "file-preview", "source": "./" }]
 }
