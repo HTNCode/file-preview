@@ -472,6 +472,14 @@ describe('ペインの表示用の組み直し', () => {
     ])
   })
 
+  test('表のセルは \\ を次の 1 文字と組で読み、\\\\| は文字の \\ とセルの区切りにする', async () => {
+    expect(splitRow('| a\\\\| b |')).toEqual(['a\\\\', 'b'])
+    expect(splitRow('| a\\\\\\|b | c\\* |')).toEqual(['a\\\\|b', 'c\\*'])
+    expect(splitRow('| x\\| |')).toEqual(['x|'])
+    expect(splitRow('|')).toEqual([''])
+    expect(splitRow('a | b\\')).toEqual(['a', 'b\\'])
+  })
+
   test('細工した行や表でも線形時間で終わる', async () => {
     const started = Date.now()
     toDisplayBlocks(`-${' '.repeat(50_000)}${'a'.repeat(50_000)}\u2028`)
