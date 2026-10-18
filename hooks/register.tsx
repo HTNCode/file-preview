@@ -104,7 +104,7 @@ async function readLocalFile(
   if (stat.size > MAX_FILE_BYTES) throw new Error(`ファイルが大きすぎます（4 MiB まで）: ${target}`)
   const absolute = stat.realPath ?? target
   const text = await $.fs.read(absolute)
-  // 確かめてから読むまでの間に途中のフォルダをリンクへ差し替えられると、読む側が外をたどる。
+  // 確かめてから読むまでの間にフォルダやファイルをリンクへ差し替えられると、読む側が外をたどる。
   // 読んだ後にもう一度確かめ、実体が変わっていれば捨てる（間は狭まるが、なくなりはしない）
   if (within !== undefined && (await statForPreview($, target, within)).realPath !== absolute) {
     throw new Error(`読み込み中に対象が差し替えられました: ${target}`)
@@ -153,7 +153,8 @@ async function takeScreenshot($: EngineInterface, source: string, within?: strin
   const file = `${dir}${sep}file-preview-${SESSION_TAG}-${shotKey(source)}.png`
   // 元の HTML は直接開かず、外部読み込みを止めたコピーを撮る（理由は hardenHtmlForScreenshot を参照）
   const hardenedCopy = `${dir}${sep}file-preview-${SESSION_TAG}.html`
-  // 引数の検査（一時フォルダがネットワーク上なら例外）は、写しを書く前に済ませる。後だと空にされない写しが残る
+  // 引数の検査（一時フォルダがネットワーク上なら例外）は、写しを書く前に済ませる。
+  // 後だと文書の中身をネットワーク上へ書いてしまい、空にされない写しも残る
   const argv = screenshotArgv(browser, hardenedCopy, file, `${dir}${sep}file-preview-profile-${SESSION_TAG}`)
   await $.fs.write(hardenedCopy, hardenHtmlForScreenshot(text))
   // 前回の撮影画像が残っていても今回の成功と取り違えないよう、撮影前後の更新日時を比べる

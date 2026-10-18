@@ -90,7 +90,8 @@ export function baseName(path: string): string {
  * JavaScript の大文字化と一致するとは限らない（ı や ſ は大文字化で ASCII の I や S になり、サロゲートペアの文字は
  * 1 文字として大文字になる）。外を中とみなす向きのずれを避けるため、ASCII 以外は綴りが同じときだけ同じとみなす
  * （ずれても開けない側に倒れる）。大文字小文字を区別するフォルダ（WSL の ext4 など）では ASCII でもずれるが、
- * 大文字小文字だけが違う隣のフォルダが実在しない限り外は開けない（README の制約に記載）
+ * 作業ディレクトリのパスと大文字小文字だけが違うフォルダ（途中のフォルダの違いも含む）が実在しない限り
+ * 外は開けない（README の制約に記載）
  */
 function foldAsciiCase(path: string): string {
   return path.replace(/[a-z]+/g, (letters) => letters.toUpperCase())
