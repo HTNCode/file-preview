@@ -153,8 +153,9 @@ async function takeScreenshot($: EngineInterface, source: string, within?: strin
   const file = `${dir}${sep}file-preview-${SESSION_TAG}-${shotKey(source)}.png`
   // 元の HTML は直接開かず、外部読み込みを止めたコピーを撮る（理由は hardenHtmlForScreenshot を参照）
   const hardenedCopy = `${dir}${sep}file-preview-${SESSION_TAG}.html`
-  await $.fs.write(hardenedCopy, hardenHtmlForScreenshot(text))
+  // 引数の検査（一時フォルダがネットワーク上なら例外）は、写しを書く前に済ませる。後だと空にされない写しが残る
   const argv = screenshotArgv(browser, hardenedCopy, file, `${dir}${sep}file-preview-profile-${SESSION_TAG}`)
+  await $.fs.write(hardenedCopy, hardenHtmlForScreenshot(text))
   // 前回の撮影画像が残っていても今回の成功と取り違えないよう、撮影前後の更新日時を比べる
   const before = await $.fs.stat(file).catch(() => undefined)
   // ブラウザの stderr にはローカルパスや URL が混ざるため、利用者への表示には使わない

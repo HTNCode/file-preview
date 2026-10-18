@@ -986,6 +986,24 @@ test('撮影の後、撮影用の HTML のコピーを空にする', async ($, o
   expect(copies.at(-1)?.text).toBe('')
 })
 
+test('一時フォルダがネットワーク上のときは、撮影用のコピーを書く前に止める', async ($, on) => {
+  const copies: string[] = []
+  on('fs.stat', async () => ({ value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath: '/work/a.html' } }))
+  on('fs.read', async () => ({ value: '<p>a</p>' }))
+  on('fs.write', async (_$, e) => {
+    if (e.path.endsWith('.html')) copies.push(e.text)
+    return { value: undefined }
+  })
+  on('env.get', async (_$, e) => ({ value: e.name === 'FILE_PREVIEW_BROWSER' ? '/bin/browser' : '//server/tmp' }))
+  on('process.run', async () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  await $.command.run({ command: 'preview', args: 'a.html', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const pane = await $.ui.mount({ plugin: 'file-preview', surface: 'terminal', component: 'Pane', requestId: 'file-preview', props: PANE_PROPS })
+  await pane.press({ key: 'shot' })
+  await pane.unmount()
+  expect(copies).toEqual([])
+})
+
 test('閉じるボタン（q）でペインを閉じる', async ($, on) => {
   on('fs.stat', async () => ({
     value: { kind: 'file', size: 3, mtimeMs: 10, isLink: false, realPath: '/work/readme.md' },
