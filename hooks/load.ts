@@ -86,15 +86,12 @@ export function baseName(path: string): string {
 }
 
 /**
- * NTFS の大文字小文字の揃え方に近づける。NTFS は 1 文字ずつ大文字の表で引くので、文字ごとに大文字にし、
- * 1 文字に収まらないもの（ß → SS など）は元のままにする。小文字へ揃えると、ケルビン記号（U+212A）と k のように
- * NTFS では別の名前になる文字を同じとみなしてしまう
+ * Windows のパスの大文字小文字を ASCII の範囲だけ揃える。NTFS の大文字の表（$UpCase）は ASCII 以外も揃えるが、
+ * JavaScript の大文字化とは一致しない（ケルビン記号、ß、サロゲートペアの文字など）。外を中とみなす向きの
+ * ずれを避けるため、ASCII 以外は綴りが同じときだけ同じとみなす（ずれても開けない側に倒れる）
  */
-function foldCaseLikeNtfs(path: string): string {
-  return Array.from(path, (char) => {
-    const upper = char.toUpperCase()
-    return Array.from(upper).length === 1 ? upper : char
-  }).join('')
+function foldAsciiCase(path: string): string {
+  return path.replace(/[a-z]+/g, (letters) => letters.toUpperCase())
 }
 
 /**
@@ -105,7 +102,7 @@ function foldCaseLikeNtfs(path: string): string {
  */
 export function isInsideRoot(realPath: string, root: string): boolean {
   const isWindowsRoot = /^(?:[A-Za-z]:[\\/]?|\\\\)/.test(root)
-  const normalize = (path: string) => (isWindowsRoot ? foldCaseLikeNtfs(path.replace(/\\/g, '/')) : path)
+  const normalize = (path: string) => (isWindowsRoot ? foldAsciiCase(path.replace(/\\/g, '/')) : path)
   const base = normalize(root).replace(/\/+$/, '')
   return normalize(realPath).startsWith(`${base}/`)
 }

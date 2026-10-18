@@ -666,6 +666,10 @@ test('作業ディレクトリの配下かを、区切りの位置と Windows �
   // ケルビン記号（U+212A）は NTFS では k と別の名前
   expect(isInsideRoot('C:\\k\\secret.md', 'C:\\\u212a')).toBe(false)
   expect(isInsideRoot('C:\\wor\u212a\\secret.md', 'C:\\work')).toBe(false)
+  // ASCII 以外は大文字小文字を揃えない。NTFS とずれる文字で外を中とみなさない
+  expect(isInsideRoot('C:\\\u{10400}\\secret.md', 'C:\\\u{10428}')).toBe(false)
+  expect(isInsideRoot('C:\\STRASSE\\a.md', 'C:\\straße')).toBe(false)
+  expect(isInsideRoot('C:\\É\\a.md', 'C:\\é')).toBe(false)
   expect(isInsideRoot('\\\\server\\Share\\a.md', '\\\\server\\share')).toBe(true)
 })
 
