@@ -526,6 +526,7 @@ describe('ペインの表示用の組み直し', () => {
     expect(text('- 手順\n\n      def __init__(self):')).toBe('・手順\n\n    def __init__(self):')
     // 記号で始まっていても、本文の桁より 4 以上深ければ入れ子の項目ではなくインデントのコード
     expect(text('- 項目\n\n        - コードの中の行')).toBe('・項目\n\n      - コードの中の行')
+    expect(text('- 項目\n\n      - ちょうど 4 深い行')).toBe('・項目\n\n    - ちょうど 4 深い行')
     expect(text('- 項目\n    - 入れ子')).toBe('・項目\n　　・入れ子')
   })
 
@@ -927,19 +928,31 @@ test('モデルのツールで開いた HTML は、撮影で読む間に外へ�
 })
 
 test('モデルのツールでは、読む間に対象が外へ差し替えられたら表示しない', async ($, on) => {
-  let statted = 0
+  let realPath = '/work/a.md'
+  let swappedTo = ''
+  let opened = 0
   on('session.root', async () => ({ value: '/work' }))
   on('fs.stat', async (_$, e) => {
     if (e.path === '/work') return { value: { kind: 'dir', size: 3, mtimeMs: 1, isLink: false, realPath: '/work' } }
-    statted++
-    // 1 回目（読む前）は配下、2 回目（読んだ後）は外を指している
-    const realPath = statted === 1 ? '/work/a.md' : '/home/me/secret.md'
     return { value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath } }
   })
-  on('fs.read', async () => ({ value: '# a' }))
-  on('ui.open', async () => ({ value: { isPlaced: true } }))
-  const called = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'a.md' })
-  expect(called.deny).toBe('Could not preview it.')
+  on('fs.read', async () => {
+    // 読み終えた時点で、途中のフォルダがリンクへ差し替えられている
+    realPath = swappedTo
+    return { value: '# a' }
+  })
+  on('ui.open', async () => {
+    opened++
+    return { value: { isPlaced: true } }
+  })
+  // 外を指したままの場合と、読む間だけ外を指して配下の別のファイルへ戻された場合
+  for (const swapped of ['/home/me/secret.md', '/work/b.md']) {
+    realPath = '/work/a.md'
+    swappedTo = swapped
+    const called = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'a.md' })
+    expect(called.deny).toBe('Could not preview it.')
+  }
+  expect(opened).toBe(0)
 })
 
 test('撮影の後、撮影用の HTML のコピーを空にする', async ($, on) => {
