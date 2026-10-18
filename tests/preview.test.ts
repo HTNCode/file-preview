@@ -867,6 +867,42 @@ test('モデルのツールで開いた HTML は、撮影でも作業ディレ�
   expect(launched).toBe(0)
 })
 
+test('モデルのツールで開いた HTML は、撮影で読む間に外へ差し替えられたら撮らない', async ($, on) => {
+  let realPath = '/work/a.html'
+  let isShooting = false
+  let launched = 0
+  const copies: string[] = []
+  on('session.root', async () => ({ value: '/work' }))
+  on('fs.stat', async (_$, e) => {
+    if (e.path === '/work') return { value: { kind: 'dir', size: 3, mtimeMs: 1, isLink: false, realPath: '/work' } }
+    return { value: { kind: 'file', size: 3, mtimeMs: 1, isLink: false, realPath } }
+  })
+  on('fs.read', async () => {
+    // 撮影のための確認を通った直後に、外を指すリンクへ差し替えられた
+    if (isShooting) realPath = '/home/me/secret.html'
+    return { value: '<p>a</p>' }
+  })
+  on('fs.write', async (_$, e) => {
+    if (e.path.endsWith('.html')) copies.push(e.text)
+    return { value: undefined }
+  })
+  on('fs.exists', async () => ({ value: true }))
+  on('env.get', async (_$, e) => ({ value: e.name === 'FILE_PREVIEW_BROWSER' ? '/bin/browser' : '/tmp' }))
+  on('process.run', async () => {
+    launched++
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('ui.open', async () => ({ value: { isPlaced: true } }))
+  const opened = await $.tool.call({ tool: 'mcp__file-preview__open', target: 'a.html' })
+  expect(opened.deny).toBeUndefined()
+  isShooting = true
+  const pane = await $.ui.mount({ plugin: 'file-preview', surface: 'terminal', component: 'Pane', requestId: 'file-preview', props: PANE_PROPS })
+  await pane.press({ key: 'shot' })
+  await pane.unmount()
+  expect(launched).toBe(0)
+  expect(copies).toEqual([])
+})
+
 test('モデルのツールでは、読む間に対象が外へ差し替えられたら表示しない', async ($, on) => {
   let statted = 0
   on('session.root', async () => ({ value: '/work' }))

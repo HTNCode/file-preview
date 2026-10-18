@@ -93,21 +93,31 @@ async function statForPreview($: EngineInterface, target: string, within?: strin
   return stat
 }
 
-/** URL かローカルのファイルを読み込む。within は statForPreview を参照 */
-async function loadPreview($: EngineInterface, target: string, within?: string): Promise<PreviewDoc> {
-  if (isWebUrl(target)) return loadUrl($, target)
+/** ローカルのファイルを読む。within は statForPreview を参照。表示にも撮影にも、必ずここを通して読む */
+async function readLocalFile(
+  $: EngineInterface,
+  target: string,
+  within?: string,
+): Promise<{ absolute: string; text: string; mtimeMs: number }> {
   const stat = await statForPreview($, target, within)
   if (stat.kind !== 'file') throw new Error(`ファイルではありません: ${target}`)
   if (stat.size > MAX_FILE_BYTES) throw new Error(`ファイルが大きすぎます（4 MiB まで）: ${target}`)
   const absolute = stat.realPath ?? target
   const text = await $.fs.read(absolute)
-  if (within === undefined) return docFromFile(absolute, text, stat.mtimeMs)
   // 確かめてから読むまでの間に途中のフォルダをリンクへ差し替えられると、読む側が外をたどる。
   // 読んだ後にもう一度確かめ、実体が変わっていれば捨てる（間は狭まるが、なくなりはしない）
-  if ((await statForPreview($, target, within)).realPath !== absolute) {
+  if (within !== undefined && (await statForPreview($, target, within)).realPath !== absolute) {
     throw new Error(`読み込み中に対象が差し替えられました: ${target}`)
   }
-  return { ...docFromFile(absolute, text, stat.mtimeMs), within }
+  return { absolute, text, mtimeMs: stat.mtimeMs }
+}
+
+/** URL かローカルのファイルを読み込む。within は statForPreview を参照 */
+async function loadPreview($: EngineInterface, target: string, within?: string): Promise<PreviewDoc> {
+  if (isWebUrl(target)) return loadUrl($, target)
+  const { absolute, text, mtimeMs } = await readLocalFile($, target, within)
+  const doc = docFromFile(absolute, text, mtimeMs)
+  return within === undefined ? doc : { ...doc, within }
 }
 
 async function isWindows($: EngineInterface): Promise<boolean> {
@@ -128,8 +138,10 @@ async function findBrowser($: EngineInterface): Promise<string | undefined> {
 }
 
 async function takeScreenshot($: EngineInterface, source: string, within?: string): Promise<PreviewShot> {
-  // 開いた後に対象が外を指すシンボリックリンクへ差し替えられても、開いたときと同じ範囲でしか読まない
-  await statForPreview($, source, within)
+  if (isNetworkPath(source)) throw new Error('ネットワーク上のファイルはスクリーンショットの対象外です')
+  // 開いた後に対象が外を指すシンボリックリンクへ差し替えられても、開いたときと同じ範囲でしか読まない。
+  // 確かめた直後に読み、ブラウザを探す間などに差し替えられる隙を作らない
+  const { text } = await readLocalFile($, source, within)
   const browser = await findBrowser($)
   if (browser === undefined) {
     throw new Error('Chrome / Edge が見つかりません。環境変数 FILE_PREVIEW_BROWSER にブラウザのパスを設定してください')
@@ -137,12 +149,11 @@ async function takeScreenshot($: EngineInterface, source: string, within?: strin
   const windows = await isWindows($)
   const sep = windows ? '\\' : '/'
   const dir = ((windows ? await $.env.get('TEMP') : await $.env.get('TMPDIR')) ?? '/tmp').replace(/[\\/]+$/, '')
-  if (isNetworkPath(source)) throw new Error('ネットワーク上のファイルはスクリーンショットの対象外です')
   // 画像は対象ファイルごとに分ける。共通の 1 枚だと、別ファイルの撮影で表示中の画像が差し替わる
   const file = `${dir}${sep}file-preview-${SESSION_TAG}-${shotKey(source)}.png`
   // 元の HTML は直接開かず、外部読み込みを止めたコピーを撮る（理由は hardenHtmlForScreenshot を参照）
   const hardenedCopy = `${dir}${sep}file-preview-${SESSION_TAG}.html`
-  await $.fs.write(hardenedCopy, hardenHtmlForScreenshot(await $.fs.read(source)))
+  await $.fs.write(hardenedCopy, hardenHtmlForScreenshot(text))
   const argv = screenshotArgv(browser, hardenedCopy, file, `${dir}${sep}file-preview-profile-${SESSION_TAG}`)
   // 前回の撮影画像が残っていても今回の成功と取り違えないよう、撮影前後の更新日時を比べる
   const before = await $.fs.stat(file).catch(() => undefined)
