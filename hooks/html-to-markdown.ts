@@ -155,6 +155,7 @@ const MAX_LIST_INDENT = 10
 
 // 変換結果の上限。表示は 10 万文字までなので、空白整理で縮む分を見込んでも十分な量で打ち切る
 const OUTPUT_BUDGET = 400_000
+const TABLE_PARTS = new Set(['table', 'tr', 'td', 'th'])
 
 /** 中身に含まれる最長のバッククォート列より長いフェンスで囲み、本文でフェンスが閉じないようにする */
 export function codeFence(text: string, language = ''): string {
@@ -170,10 +171,34 @@ export function codeFence(text: string, language = ''): string {
 
 /**
  * データの表のセルに入れる文字の `|` と `\` をエスケープする。`|` だけだと、元の文字の `\|` が `\\|`
- * （文字の `\` とセルの区切り）になり、GFM の表でセルが増える
+ * （文字の `\` とセルの区切り）になり、GFM の表でセルが増える。
+ * code の中は `\` のエスケープが効かないので、ここを通さず tableCellCode で書く
  */
 function escapeTableCell(text: string): string {
   return text.replace(/[\\|]/g, '\\$&')
+}
+
+const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/g
+
+/** `\` が奇数個続いた直後に `|` があるか。その `|` を `\|` にすると `\` が偶数個になり、GFM の表で区切りとして読まれる */
+function hasOddBackslashesBeforePipe(text: string): boolean {
+  let run = 0
+  for (const char of text) {
+    if (char === '|' && run % 2 === 1) return true
+    run = char === '\\' ? run + 1 : 0
+  }
+  return false
+}
+
+/**
+ * データの表のセルの code を書く。コードスパンの中では `\` が文字のまま残り、表の段階で `\|` だけが `|` に戻るので、
+ * `|` だけを `\|` にしてバッククォートで囲む。`\` が奇数個続いた直後の `|` とバッククォートはこの形で表せないので、
+ * 囲まずに ASCII の記号をすべてエスケープした地の文にする（`_` や `*` を強調にしないため、記号は全部エスケープする）
+ */
+function tableCellCode(text: string): string {
+  if (text === '') return ''
+  if (text.includes('`') || hasOddBackslashesBeforePipe(text)) return text.replace(ASCII_PUNCTUATION, '\\$&')
+  return `\`${text.replace(/\|/g, '\\|')}\``
 }
 
 // 入れ子のリストの字下げだけは残す。ほかの行頭の空白は、元の HTML の改行やインデントに由来するので消す
@@ -242,12 +267,25 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
     if (pre !== undefined) pre.push(value)
     else out.push(value)
   }
+  // データの表のセルの code は、中身をエスケープせずに溜め、閉じたところで書き方を決める（tableCellCode）。
+  // 中身を見るまでバッククォートで囲めるか分からないため。値は中身が始まる out の位置
+  let cellCodeStart: number | undefined
+  const escapesCellText = () => inDataTable() && cellCodeStart === undefined
+  const closeCellCode = () => {
+    if (cellCodeStart === undefined) return
+    const text = out.splice(cellCodeStart).join('')
+    cellCodeStart = undefined
+    const value = tableCellCode(text)
+    produced += value.length - text.length
+    out.push(value)
+  }
   const pushText = (raw: string) => {
     const decoded = decodeEntities(raw)
     if (pre !== undefined) emit(decoded)
-    else emit((inDataTable() ? escapeTableCell(decoded) : decoded).replace(/\s+/g, ' '))
+    else emit((escapesCellText() ? escapeTableCell(decoded) : decoded).replace(/\s+/g, ' '))
   }
   const flushText = () => {
+    closeCellCode()
     segments.push({ text: out.join('') })
     out = []
     links = []
@@ -305,6 +343,8 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
       continue
     }
     if (pre !== undefined) continue
+    // 閉じられないままセルや表が終わった code は、そこで閉じる。溜めた中身をエスケープせずに残さないため
+    if (TABLE_PARTS.has(name)) closeCellCode()
 
     const heading = /^h([1-6])$/.exec(name)
     if (heading !== null) {
@@ -316,6 +356,8 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
         links.push({ start: out.length, target: href === undefined ? undefined : resolveHref(href, baseUrl) })
       } else {
         const frame = links.pop()
+        // リンクの中で始まった code は、ラベルとして切り出す前に閉じる（`<a><code>x</a>` のような食い違った入れ子）
+        if (frame !== undefined && cellCodeStart !== undefined && cellCodeStart >= frame.start) closeCellCode()
         if (frame?.target !== undefined) {
           const label = out.splice(frame.start).join('').replace(/[[\]]/g, '').trim()
           // データの表の中では | がセルの区切りになるので、リンク先でも符号化する
@@ -331,11 +373,13 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
     } else if (Object.hasOwn(EMPHASIS, name)) {
       emit(EMPHASIS[name] ?? '')
     } else if (name === 'code') {
-      emit('`')
+      if (!inDataTable()) emit('`')
+      else if (isClosing) closeCellCode()
+      else cellCodeStart ??= out.length
     } else if (name === 'img' && !isClosing) {
       const alt = attribute(attrs, 'alt')
       const trimmed = alt?.trim()
-      const label = inDataTable() && trimmed !== undefined ? escapeTableCell(trimmed) : trimmed
+      const label = escapesCellText() && trimmed !== undefined ? escapeTableCell(trimmed) : trimmed
       if (label !== undefined && label !== '') emit(`[画像: ${label}]`)
     } else if (name === 'br') {
       emit('\n')

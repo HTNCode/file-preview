@@ -91,7 +91,28 @@ describe('HTML から Markdown への変換', () => {
   test('データの表のセル内の \\ もエスケープし、元の \\| でセルを増やさない', async () => {
     const markdown = htmlToMarkdown('<table><tr><th>h</th></tr><tr><td>a\\|b C:\\x<img alt="e\\|f"></td></tr></table>')
     expect(markdown).toBe('| h |\n| --- |\n| a\\\\\\|b C:\\\\x[画像: e\\\\\\|f] |')
-    expect(splitRow(markdown.split('\n')[2] ?? '')).toEqual(['a\\\\|b C:\\\\x[画像: e\\\\|f]'])
+    expect(toDisplayBlocks(markdown)).toEqual([{ kind: 'markdown', text: '・h: a\\\\|b C:\\\\x[画像: e\\\\|f]' }])
+  })
+
+  test('データの表のセル内の code は \\ をエスケープせず、コードスパンで表せない中身は記号をエスケープした地の文にする', async () => {
+    const cell = (inner: string) => {
+      const markdown = htmlToMarkdown(`<table><tr><th>h</th></tr><tr><td>${inner}</td></tr></table>`)
+      return { row: markdown.split('\n')[2], display: toDisplayBlocks(markdown).map((block) => block.text).join('\n') }
+    }
+    expect(cell('<code>C:\\Users</code> <code>__init__</code>')).toEqual({
+      row: '| `C:\\Users` `__init__` |',
+      display: '・h: `C:\\Users` `__init__`',
+    })
+    expect(cell('<code>a|b</code>')).toEqual({ row: '| `a\\|b` |', display: '・h: `a|b`' })
+    // `\` の直後の `|` は区切りに、バッククォートはコードスパンの終わりになるので、囲まずに出す
+    expect(cell('<code>a\\|b_c_</code>')).toEqual({ row: '| a\\\\\\|b\\_c\\_ |', display: '・h: a\\\\|b\\_c\\_' })
+    expect(cell('<code>x`y</code>')).toEqual({ row: '| x\\`y |', display: '・h: x\\`y' })
+    // 閉じないままセルが終わった code と、リンクと食い違って入れ子になった code も、中身の | で表を壊さない
+    expect(cell('<code>a|b</td><td>c')).toEqual({ row: '| `a\\|b` | c |', display: '・h: `a|b`\n　列2: c' })
+    expect(cell('<a href="https://e.com/"><code>a|b</a></code>')).toEqual({
+      row: '| [`a\\|b`](https://e.com/) |',
+      display: '・h: [`a|b`](https://e.com/)',
+    })
   })
 
   test('<ol start> と <li value> の番号を保つ', async () => {
