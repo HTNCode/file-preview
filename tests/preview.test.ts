@@ -104,15 +104,43 @@ describe('HTML から Markdown への変換', () => {
       display: '・h: `C:\\Users` `__init__`',
     })
     expect(cell('<code>a|b</code>')).toEqual({ row: '| `a\\|b` |', display: '・h: `a|b`' })
-    // `\` の直後の `|` は区切りに、バッククォートはコードスパンの終わりになるので、囲まずに出す
-    expect(cell('<code>a\\|b_c_</code>')).toEqual({ row: '| a\\\\\\|b\\_c\\_ |', display: '・h: a\\\\|b\\_c\\_' })
+    expect(cell('<code><img alt="a|b"></code>')).toEqual({ row: '| `[画像: a\\|b]` |', display: '・h: `[画像: a|b]`' })
+    expect(cell('<code></code>x')).toEqual({ row: '| x |', display: '・h: x' })
+    // `\` と `|` を両方含む中身とバッククォートを含む中身は、囲まずに出す
+    expect(cell('<code>a\\\\|b_c_</code>')).toEqual({
+      row: '| a\\\\\\\\\\|b\\_c\\_ |',
+      display: '・h: a\\\\\\\\|b\\_c\\_',
+    })
     expect(cell('<code>x`y</code>')).toEqual({ row: '| x\\`y |', display: '・h: x\\`y' })
-    // 閉じないままセルが終わった code と、リンクと食い違って入れ子になった code も、中身の | で表を壊さない
+    // 閉じないままセルや入力が終わった code と、リンクと食い違って入れ子になった code も、中身の | で表を壊さない
     expect(cell('<code>a|b</td><td>c')).toEqual({ row: '| `a\\|b` | c |', display: '・h: `a|b`\n　列2: c' })
+    expect(htmlToMarkdown('<table><tr><th>h</th></tr><tr><td><code>a|b')).toBe('| h |\n| --- |\n| `a\\|b`')
     expect(cell('<a href="https://e.com/"><code>a|b</a></code>')).toEqual({
       row: '| [`a\\|b`](https://e.com/) |',
       display: '・h: [`a|b`](https://e.com/)',
     })
+    expect(cell('<code>p<a href="https://e.com/">x</code>y<code>q|r</a></code>')).toEqual({
+      row: '| `px`[y`q\\|r`](https://e.com/) |',
+      display: '・h: `px`[y`q|r`](https://e.com/)',
+    })
+    // code の中のリンクでは code を閉じない。閉じると残りが地の文になり、`_y_` が強調になる
+    expect(cell('<code><a href="https://e.com/">x</a>_y_</code>')).toEqual({
+      row: '| `[x](https://e.com/)_y_` |',
+      display: '・h: `[x](https://e.com/)_y_`',
+    })
+    expect(cell('<code>p<a href="https://e.com/">x</a>q|r</code>').row).toBe('| `p[x](https://e.com/)q\\|r` |')
+  })
+
+  test('データの表のセルは、後の段階で文字が消えても区切りの \\| を崩さない', async () => {
+    const row = (inner: string) =>
+      docFromUrl('https://e.example/a.html', `<table><tr><th>h</th></tr><tr><td>${inner}</td></tr></table>`)
+        .markdown.split('\n')[2]
+    // 制御文字の除去
+    expect(row('<code>a\\&#1;|b</code>')).toBe('| a\\\\\\|b |')
+    // リンクのラベルの括弧の除去。エスケープした括弧は残す
+    expect(row('<a href="https://e.com/"><code>a\\[|b</code></a>')).toBe('| [a\\\\\\[\\|b](https://e.com/) |')
+    expect(row('<a href="https://e.com/"><code>x`[0]</code></a>')).toBe('| [x\\`\\[0\\]](https://e.com/) |')
+    expect(splitRow(row('<a href="https://e.com/"><code>`[|</code></a>') ?? '')).toEqual(['[\\`\\[|](https://e.com/)'])
   })
 
   test('<ol start> と <li value> の番号を保つ', async () => {
