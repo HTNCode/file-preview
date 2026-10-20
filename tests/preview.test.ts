@@ -129,6 +129,8 @@ describe('HTML から Markdown への変換', () => {
       display: '・h: `[x](https://e.com/)_y_`',
     })
     expect(cell('<code>p<a href="https://e.com/">x</a>q|r</code>').row).toBe('| `p[x](https://e.com/)q\\|r` |')
+    // 入れ子の code は外側の code として続ける。内側で開き直すと、外側の中身がエスケープされずに残る
+    expect(cell('<code>a|b<code>c</code></code>').row).toBe('| `a\\|bc` |')
   })
 
   test('データの表のセルは、後の段階で文字が消えても区切りの \\| を崩さない', async () => {
@@ -140,6 +142,8 @@ describe('HTML から Markdown への変換', () => {
     // リンクのラベルの括弧の除去。エスケープした括弧は残す
     expect(row('<a href="https://e.com/"><code>a\\[|b</code></a>')).toBe('| [a\\\\\\[\\|b](https://e.com/) |')
     expect(row('<a href="https://e.com/"><code>x`[0]</code></a>')).toBe('| [x\\`\\[0\\]](https://e.com/) |')
+    // `\\` の組を左から読まないと、後ろの `[` をエスケープ済みとみなして残してしまう
+    expect(row('<a href="https://e.com/">a\\[b</a>')).toBe('| [a\\\\b](https://e.com/) |')
     expect(splitRow(row('<a href="https://e.com/"><code>`[|</code></a>') ?? '')).toEqual(['[\\`\\[|](https://e.com/)'])
   })
 
