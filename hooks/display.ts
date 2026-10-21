@@ -92,12 +92,31 @@ function isTableSeparator(line: string): boolean {
   return line.includes('-') && line.includes('|') && splitRow(line).every((cell) => SEPARATOR_CELL.test(cell))
 }
 
-/** 表の 1 行をセルに分ける。`\|` はセルの区切りではなく文字の `|` */
+/**
+ * 表の 1 行をセルに分ける。`\|` はセルの区切りではなく文字の `|` にする。`\\|` は文字の `\` と区切りなので、
+ * `\` は次の 1 文字と組で読む。`\\` などほかのエスケープは、セルを描く Markdown に任せてそのまま残す
+ */
 export function splitRow(line: string): string[] {
-  let row = line.trim()
-  if (row.startsWith('|')) row = row.slice(1)
-  if (row.endsWith('|') && !row.endsWith('\\|')) row = row.slice(0, -1)
-  return row.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, '|'))
+  const row = line.trim()
+  const cells: string[] = []
+  let cell = ''
+  let endsWithDelimiter = false
+  for (let i = row.startsWith('|') ? 1 : 0; i < row.length; i++) {
+    const char = row.charAt(i)
+    endsWithDelimiter = char === '|'
+    if (char === '\\' && i + 1 < row.length) {
+      const next = row.charAt(++i)
+      cell += next === '|' ? '|' : char + next
+    } else if (endsWithDelimiter) {
+      cells.push(cell.trim())
+      cell = ''
+    } else {
+      cell += char
+    }
+  }
+  // 末尾の | は外枠なので、その後ろに空のセルを足さない
+  if (!endsWithDelimiter) cells.push(cell.trim())
+  return cells
 }
 
 function columnName(header: string[], column: number): string {

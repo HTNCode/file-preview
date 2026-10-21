@@ -109,7 +109,8 @@ export function extractTitle(html: string): string | undefined {
   return title === '' ? undefined : title
 }
 
-type LinkFrame = { start: number; target: string | undefined }
+/** code はリンクを開いたときに開いていたデータの表のセルの code の番号 */
+type LinkFrame = { start: number; target: string | undefined; code: number | undefined }
 
 // 1 つのタグとして読む長さの上限。閉じない引用符で残り全体を読み進めないための保険
 const MAX_TAG_CHARS = 8192
@@ -155,6 +156,7 @@ const MAX_LIST_INDENT = 10
 
 // 変換結果の上限。表示は 10 万文字までなので、空白整理で縮む分を見込んでも十分な量で打ち切る
 const OUTPUT_BUDGET = 400_000
+const TABLE_PARTS = new Set(['table', 'tr', 'td', 'th'])
 
 /** 中身に含まれる最長のバッククォート列より長いフェンスで囲み、本文でフェンスが閉じないようにする */
 export function codeFence(text: string, language = ''): string {
@@ -166,6 +168,39 @@ export function codeFence(text: string, language = ''): string {
   }
   const marker = '`'.repeat(longest + 1)
   return `${marker}${language}\n${text}\n${marker}`
+}
+
+/**
+ * データの表のセルに入れる文字の `|` と `\` をエスケープする。`|` だけだと、元の文字の `\|` が `\\|`
+ * （文字の `\` とセルの区切り）になり、GFM の表でセルが増える。
+ * code の中は `\` のエスケープが効かないので、ここを通さず tableCellCode で書く
+ */
+function escapeTableCell(text: string): string {
+  return text.replace(/[\\|]/g, '\\$&')
+}
+
+const ASCII_PUNCTUATION = /[!-/:-@[-`{-~]/g
+
+/**
+ * データの表のセルの code を書く。コードスパンの中では `\` が文字のまま残り、表の段階で `\|` だけが `|` に戻るので、
+ * `|` だけを `\|` にしてバッククォートで囲む。
+ * 中身がバッククォートを含むときと、`\` と `|` を両方含むときは、囲まずに ASCII の記号をすべてエスケープした地の文にする
+ * （`_` や `*` を強調にしないため、記号は全部エスケープする）。
+ * `\` の並びの偶奇で囲めるかを決めないのは、このあとの段階（制御文字の除去、リンクのラベルの括弧の除去）で
+ * 間の文字が消え、`\` がつながって `\\|` になりうるため。`\` と `|` の片方しか無ければ、文字が消えても区切りは生まれない
+ */
+function tableCellCode(text: string): string {
+  if (text === '') return ''
+  const isSpanSafe = !text.includes('`') && !(text.includes('\\') && text.includes('|'))
+  return isSpanSafe ? `\`${text.replace(/\|/g, '\\|')}\`` : text.replace(ASCII_PUNCTUATION, '\\$&')
+}
+
+/**
+ * リンクのラベルから `[` `]` を除く。`\[` のようなエスケープの組は残す。
+ * 組の `[` だけを除くと、前の `\` が次の文字と組になり、表のセルでは `\\|` ができて区切りになる
+ */
+function stripLabelBrackets(label: string): string {
+  return label.replace(/\\[\s\S]|[[\]]/g, (match) => (match.length === 2 ? match : ''))
 }
 
 // 入れ子のリストの字下げだけは残す。ほかの行頭の空白は、元の HTML の改行やインデントに由来するので消す
@@ -234,12 +269,27 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
     if (pre !== undefined) pre.push(value)
     else out.push(value)
   }
+  // データの表のセルの code は、中身をエスケープせずに溜め、閉じたところで書き方を決める（tableCellCode）。
+  // 中身を見るまでバッククォートで囲めるか分からないため。start は中身が始まる out の位置、
+  // id は開いた順の番号で、リンクの閉じタグでどの code の中のリンクかを見分けるのに使う
+  let cellCode: { start: number; id: number } | undefined
+  let cellCodesOpened = 0
+  const escapesCellText = () => inDataTable() && cellCode === undefined
+  const closeCellCode = () => {
+    if (cellCode === undefined) return
+    const text = out.splice(cellCode.start).join('')
+    cellCode = undefined
+    const value = tableCellCode(text)
+    produced += value.length - text.length
+    out.push(value)
+  }
   const pushText = (raw: string) => {
     const decoded = decodeEntities(raw)
     if (pre !== undefined) emit(decoded)
-    else emit((inDataTable() ? decoded.replace(/\|/g, '\\|') : decoded).replace(/\s+/g, ' '))
+    else emit((escapesCellText() ? escapeTableCell(decoded) : decoded).replace(/\s+/g, ' '))
   }
   const flushText = () => {
+    closeCellCode()
     segments.push({ text: out.join('') })
     out = []
     links = []
@@ -297,6 +347,8 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
       continue
     }
     if (pre !== undefined) continue
+    // 閉じられないままセルや表が終わった code は、そこで閉じる。溜めた中身をエスケープせずに残さないため
+    if (TABLE_PARTS.has(name)) closeCellCode()
 
     const heading = /^h([1-6])$/.exec(name)
     if (heading !== null) {
@@ -305,11 +357,15 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
       if (!isClosing) {
         // 入れ子のリンクは外側だけを扱う。内側ごとに本文を組み直すと入れ子の深さだけ処理が膨らむ
         const href = links.length === 0 ? attribute(attrs, 'href') : undefined
-        links.push({ start: out.length, target: href === undefined ? undefined : resolveHref(href, baseUrl) })
+        const target = href === undefined ? undefined : resolveHref(href, baseUrl)
+        links.push({ start: out.length, target, code: cellCode?.id })
       } else {
         const frame = links.pop()
+        // リンクを開いた後に始まった code は、ラベルとして切り出す前に閉じる（`<a><code>x</a>` のような食い違った入れ子）。
+        // 位置では比べない。`<a><code>` と `<code><a>` は、間に何も出力されないと位置が同じになる
+        if (frame !== undefined && cellCode !== undefined && cellCode.id !== frame.code) closeCellCode()
         if (frame?.target !== undefined) {
-          const label = out.splice(frame.start).join('').replace(/[[\]]/g, '').trim()
+          const label = stripLabelBrackets(out.splice(frame.start).join('')).trim()
           // データの表の中では | がセルの区切りになるので、リンク先でも符号化する
           const target = frame.target
             .replace(/\(/g, '%28')
@@ -323,10 +379,13 @@ export function htmlToMarkdown(html: string, baseUrl?: string): string {
     } else if (Object.hasOwn(EMPHASIS, name)) {
       emit(EMPHASIS[name] ?? '')
     } else if (name === 'code') {
-      emit('`')
+      if (!inDataTable()) emit('`')
+      else if (isClosing) closeCellCode()
+      else cellCode ??= { start: out.length, id: ++cellCodesOpened }
     } else if (name === 'img' && !isClosing) {
       const alt = attribute(attrs, 'alt')
-      const label = inDataTable() ? alt?.trim().replace(/\|/g, '\\|') : alt?.trim()
+      const trimmed = alt?.trim()
+      const label = escapesCellText() && trimmed !== undefined ? escapeTableCell(trimmed) : trimmed
       if (label !== undefined && label !== '') emit(`[画像: ${label}]`)
     } else if (name === 'br') {
       emit('\n')

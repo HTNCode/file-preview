@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { toDisplayBlocks } from '../hooks/display'
+import { splitRow, toDisplayBlocks } from '../hooks/display'
 import { extractTitle, htmlToMarkdown } from '../hooks/html-to-markdown'
 import {
   MAX_CHARS,
@@ -86,6 +86,65 @@ describe('HTML から Markdown への変換', () => {
       '<table><tr><th>h</th></tr><tr><td><a href="https://e.com/a|b">x</a><img alt="c|d"></td></tr></table>',
     )
     expect(markdown).toBe('| h |\n| --- |\n| [x](https://e.com/a%7Cb)[画像: c\\|d] |')
+  })
+
+  test('データの表のセル内の \\ もエスケープし、元の \\| でセルを増やさない', async () => {
+    const markdown = htmlToMarkdown('<table><tr><th>h</th></tr><tr><td>a\\|b C:\\x<img alt="e\\|f"></td></tr></table>')
+    expect(markdown).toBe('| h |\n| --- |\n| a\\\\\\|b C:\\\\x[画像: e\\\\\\|f] |')
+    expect(toDisplayBlocks(markdown)).toEqual([{ kind: 'markdown', text: '・h: a\\\\|b C:\\\\x[画像: e\\\\|f]' }])
+  })
+
+  test('データの表のセル内の code は \\ をエスケープせず、コードスパンで表せない中身は記号をエスケープした地の文にする', async () => {
+    const cell = (inner: string) => {
+      const markdown = htmlToMarkdown(`<table><tr><th>h</th></tr><tr><td>${inner}</td></tr></table>`)
+      return { row: markdown.split('\n')[2], display: toDisplayBlocks(markdown).map((block) => block.text).join('\n') }
+    }
+    expect(cell('<code>C:\\Users</code> <code>__init__</code>')).toEqual({
+      row: '| `C:\\Users` `__init__` |',
+      display: '・h: `C:\\Users` `__init__`',
+    })
+    expect(cell('<code>a|b</code>')).toEqual({ row: '| `a\\|b` |', display: '・h: `a|b`' })
+    expect(cell('<code><img alt="a|b"></code>')).toEqual({ row: '| `[画像: a\\|b]` |', display: '・h: `[画像: a|b]`' })
+    expect(cell('<code></code>x')).toEqual({ row: '| x |', display: '・h: x' })
+    // `\` と `|` を両方含む中身とバッククォートを含む中身は、囲まずに出す
+    expect(cell('<code>a\\\\|b_c_</code>')).toEqual({
+      row: '| a\\\\\\\\\\|b\\_c\\_ |',
+      display: '・h: a\\\\\\\\|b\\_c\\_',
+    })
+    expect(cell('<code>x`y</code>')).toEqual({ row: '| x\\`y |', display: '・h: x\\`y' })
+    // 閉じないままセルや入力が終わった code と、リンクと食い違って入れ子になった code も、中身の | で表を壊さない
+    expect(cell('<code>a|b</td><td>c')).toEqual({ row: '| `a\\|b` | c |', display: '・h: `a|b`\n　列2: c' })
+    expect(htmlToMarkdown('<table><tr><th>h</th></tr><tr><td><code>a|b')).toBe('| h |\n| --- |\n| `a\\|b`')
+    expect(cell('<a href="https://e.com/"><code>a|b</a></code>')).toEqual({
+      row: '| [`a\\|b`](https://e.com/) |',
+      display: '・h: [`a|b`](https://e.com/)',
+    })
+    expect(cell('<code>p<a href="https://e.com/">x</code>y<code>q|r</a></code>')).toEqual({
+      row: '| `px`[y`q\\|r`](https://e.com/) |',
+      display: '・h: `px`[y`q|r`](https://e.com/)',
+    })
+    // code の中のリンクでは code を閉じない。閉じると残りが地の文になり、`_y_` が強調になる
+    expect(cell('<code><a href="https://e.com/">x</a>_y_</code>')).toEqual({
+      row: '| `[x](https://e.com/)_y_` |',
+      display: '・h: `[x](https://e.com/)_y_`',
+    })
+    expect(cell('<code>p<a href="https://e.com/">x</a>q|r</code>').row).toBe('| `p[x](https://e.com/)q\\|r` |')
+    // 入れ子の code は外側の code として続ける。内側で開き直すと、外側の中身がエスケープされずに残る
+    expect(cell('<code>a|b<code>c</code></code>').row).toBe('| `a\\|bc` |')
+  })
+
+  test('データの表のセルは、後の段階で文字が消えても区切りの \\| を崩さない', async () => {
+    const row = (inner: string) =>
+      docFromUrl('https://e.example/a.html', `<table><tr><th>h</th></tr><tr><td>${inner}</td></tr></table>`)
+        .markdown.split('\n')[2]
+    // 制御文字の除去
+    expect(row('<code>a\\&#1;|b</code>')).toBe('| a\\\\\\|b |')
+    // リンクのラベルの括弧の除去。エスケープした括弧は残す
+    expect(row('<a href="https://e.com/"><code>a\\[|b</code></a>')).toBe('| [a\\\\\\[\\|b](https://e.com/) |')
+    expect(row('<a href="https://e.com/"><code>x`[0]</code></a>')).toBe('| [x\\`\\[0\\]](https://e.com/) |')
+    // `\\` の組を左から読まないと、後ろの `[` をエスケープ済みとみなして残してしまう
+    expect(row('<a href="https://e.com/">a\\[b</a>')).toBe('| [a\\\\b](https://e.com/) |')
+    expect(splitRow(row('<a href="https://e.com/"><code>`[|</code></a>') ?? '')).toEqual(['[\\`\\[|](https://e.com/)'])
   })
 
   test('<ol start> と <li value> の番号を保つ', async () => {
@@ -464,6 +523,14 @@ describe('ペインの表示用の組み直し', () => {
     expect(blocks).toEqual([
       { kind: 'markdown', text: '・名前: A\n　用途: x|y\n\n・名前: B\n　用途: z\n　必須: 任意' },
     ])
+  })
+
+  test('表のセルは \\ を次の 1 文字と組で読み、\\\\| は文字の \\ とセルの区切りにする', async () => {
+    expect(splitRow('| a\\\\| b |')).toEqual(['a\\\\', 'b'])
+    expect(splitRow('| a\\\\\\|b | c\\* |')).toEqual(['a\\\\|b', 'c\\*'])
+    expect(splitRow('| x\\| |')).toEqual(['x|'])
+    expect(splitRow('|')).toEqual([''])
+    expect(splitRow('a | b\\')).toEqual(['a', 'b\\'])
   })
 
   test('細工した行や表でも線形時間で終わる', async () => {
